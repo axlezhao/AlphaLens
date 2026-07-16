@@ -1,0 +1,18 @@
+name: alphalens-us-equity-research
+version: 0.1.0
+display_name: AlphaLens 美股投资论点研究
+description: 将美股研究问题转化为可追溯、可证伪、可跟踪的投资论点与情景决策卡。
+entrypoint: SKILL.md
+permissions:
+  network:
+    - sec.gov
+    - investor_relations
+    - configured_market_data_provider
+  filesystem:
+    - read: workspace
+    - write: workspace/alphalens
+outputs:
+  - research_report.md
+  - thesis.json
+  - evidence.json
+  - catalysts.json

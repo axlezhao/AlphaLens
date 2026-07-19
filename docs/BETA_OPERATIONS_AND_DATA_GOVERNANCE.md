@@ -19,7 +19,7 @@ flowchart LR
   A & W --> L[(Audit + Trace)]
 ```
 
-创建任务只写入 D1 并返回 `202`。内部 Worker 通过条件更新获取 90 秒租约，执行时增加 `attempts`；Worker 丢失后，下一轮会回收过期租约。任务支持指数退避、三次尝试、十分钟超时、取消标记、轮询和 SSE 增量事件。
+创建任务写入 D1 后立即返回 `202`，并通过 Cloudflare `waitUntil` 启动后台消费者。内部 Worker 通过条件更新获取 90 秒租约，执行时增加 `attempts`；Worker 丢失或超过后台执行窗口后，受保护的恢复 Worker 会回收租约。任务支持指数退避、三次尝试、十分钟超时、取消标记、轮询和 SSE 增量事件。
 
 ## 2. 数据来源与授权边界
 
@@ -82,7 +82,7 @@ ALPHA_VANTAGE_API_KEY="..."
 ALPHA_VANTAGE_LICENSE_ACK="commercial-or-authorized"
 ```
 
-生产调度器每 15–30 秒调用：
+生产恢复调度器建议每 15–30 秒调用（正常任务不依赖它启动，它负责失败恢复和积压清理）：
 
 ```http
 POST /api/internal/research-worker

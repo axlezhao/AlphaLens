@@ -8,4 +8,4 @@ interface D1PreparedStatement {
 }
 interface D1Database { prepare(query: string): D1PreparedStatement; batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]> }
 interface Fetcher { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> }
-declare module "cloudflare:workers" { export const env: { DB: D1Database } }
+declare module "cloudflare:workers" { export const env: { DB: D1Database }; export function waitUntil(promise: Promise<unknown>): void }

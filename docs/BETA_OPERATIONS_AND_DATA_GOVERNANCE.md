@@ -132,6 +132,8 @@ GET    /api/v1/reports/:ticker?format=markdown|pdf|xlsx
 
 发布门禁：类型检查、单元测试、正式构建、渲染测试全部通过。真实数据上线还必须跑在线 Provider smoke test，并由人工抽检 SEC 原文、期间、单位、币种、拆股口径和一致预期时间戳。
 
+依赖安装采用 pnpm 供应链策略；`pnpm-workspace.yaml` 只允许 `esbuild`、`sharp`、`unrs-resolver` 和 `workerd` 执行安装脚本。这些是当前构建/运行链所需的原生工具，新增需要安装脚本的依赖必须经过人工审查并显式加入 `allowBuilds`，不能在 CI 中关闭该门禁。
+
 ## 8. 已知 Beta 边界
 
 - 当前研究合成器是可审计的确定性 Beta 管线，尚未接入外部 LLM；模型/Prompt/trace 字段已固化，接入模型时必须逐调用写 `model_calls`。

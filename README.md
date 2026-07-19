@@ -23,7 +23,7 @@ AlphaLens 因此被设计成“投资论点操作系统”，而不是资讯聚�
 
 ## 当前 Beta
 
-0.4 Beta 已在可恢复、可审计的研究后端之上完成 P0、P1 与 P2 组合层辅助决策，同时保留稳定的比赛展示界面：
+0.5 Beta 已在可恢复、可审计的研究后端之上完成 P0、P1、P2 与 P3 研究平台化，同时保留稳定的比赛展示界面：
 
 1. 输入股票代码或研究问题；
 2. 异步检索 SEC、获准的公司 IR、行情与一致预期，并执行证据核验；
@@ -36,6 +36,8 @@ AlphaLens 因此被设计成“投资论点操作系统”，而不是资讯聚�
 “个人工作台”现已支持用户自定义观察池、论点版本时间线、可编辑证伪条件、财报前 Preview / 财报后 Deep Dive、官方 IR 催化剂刷新、邮件/企业微信/微信公众号连接器、同行比较、当前价格隐含预期反推、复盘与认知偏差统计，以及 Markdown、PDF、Excel 报告导出。
 
 “组合决策”现已支持持仓与观察池统一视图，行业/因子/币种/事件暴露，Gross/Net/β 调整暴露，Top‑5/HHI 集中度、基于用户导入日收益率的 Pearson 相关性、流动性退出天数、多维压力情景、组合催化剂，以及论点弱化/证伪/风险预算联动。系统只生成可确认、可审计的行动条件，没有券商连接器、订单对象或自动下单路径。
+
+“研究平台”现已支持可配置、可发布的 Research Workflow DAG，半导体/SaaS/银行行业 KPI Registry，多数据商动态路由，最小权限 Research Skill Marketplace，多 Agent 独立分工与可解释仲裁，团队评论/审批/不可变研究版本发布，质量 Benchmark，以及作用域 API Key 和 HMAC 签名 Webhook。平台能力全部受 Workspace RBAC、审计和 `as_of` 约束。
 
 其中，企业微信使用官方机器人 Webhook；邮件需要配置 Resend；个人微信提醒需要已获授权的微信公众号能力。未配置凭据的通道会显示为“需密钥/需官方账号”，不会伪造发送成功。
 
@@ -59,12 +61,12 @@ AlphaLens 因此被设计成“投资论点操作系统”，而不是资讯聚�
 WorkBuddy / Web UI
         │
         ▼
-Research Orchestrator
+Versioned Research Workflow Orchestrator
         │
-        ├── SEC / Company IR
-        ├── Market Data / Consensus
-        ├── News / Events / FRED
-        └── User Research Context
+        ├── License-aware Provider Router
+        ├── Research Skill Registry
+        ├── Parallel Specialist Agents
+        └── Explainable Arbitration
         │
         ▼
 Normalization & Evidence Graph
@@ -75,7 +77,7 @@ Normalization & Evidence Graph
         └── Catalyst Monitor
         │
         ▼
-Decision Card / Watchlist / Review Log
+Versioned Artifact / Approval / Webhook
 ```
 
 详细设计见：
@@ -89,7 +91,7 @@ Decision Card / Watchlist / Review Log
 - Next.js / React / TypeScript
 - Vinext + Vite
 - Cloudflare Workers-compatible runtime
-- D1 多租户持久化、P1 工作台与可恢复任务队列
+- D1 多租户持久化、P1/P2/P3 领域模型与可恢复任务队列
 - SEC / IR / Alpha Vantage 弹性 Provider
 - Sites Sign in with ChatGPT 与 Workspace RBAC
 - WorkBuddy Skill 包：`workbuddy-skill/`
@@ -104,13 +106,17 @@ Decision Card / Watchlist / Review Log
 │   ├── api/v1/research/        # 研究任务 API
 │   ├── api/v1/workbench/       # P1 工作台查询与命令 API
 │   ├── api/v1/portfolio/       # P2 组合查询与命令 API
+│   ├── api/v1/platform/        # P3 平台控制面 API
+│   ├── api/open/v1/            # 作用域 API Key 开放接口
 │   ├── workbench.tsx           # 个人研究工作台界面
-│   └── portfolio.tsx           # 组合辅助决策界面
-├── db/ + drizzle/              # 38 张 D1 表与版本化迁移
+│   ├── portfolio.tsx           # 组合辅助决策界面
+│   └── platform.tsx            # 研究平台控制面界面
+├── db/ + drizzle/              # 59 张 D1 表与版本化迁移
 ├── lib/providers/              # SEC、IR、行情/预期与弹性策略
 ├── lib/research/               # 队列、执行器、证据版本与研究快照
 ├── lib/workbench/              # 隐含预期、连接器、导出与 P1 领域服务
 ├── lib/portfolio/              # P2 暴露、相关性、压力测试和行动条件
+├── lib/platform/               # P3 Workflow、Skill、路由、仲裁、评估与 Webhook
 ├── docs/                       # 架构、Workflow 与路线图
 ├── workbuddy-skill/            # 可导入 WorkBuddy 的 Skill 包
 ├── tests/                      # 服务端渲染验证
@@ -184,6 +190,21 @@ POST /api/v1/portfolio
 
 组合写操作使用显式 `action`：`portfolio.create`、`position.save/remove`、`policy.save`、`returns.import`、`scenario.save/run`、`risk.refresh` 与 `condition.acknowledge`。风险输入保留 `as_of`、来源状态和稳定幂等键；输出固定为 `conditions_only_no_order_execution`。
 
+### 研究平台与开放接口
+
+```http
+GET  /api/v1/platform
+POST /api/v1/platform
+GET  /api/v1/platform/runs/:runId
+
+POST /api/open/v1/research
+GET  /api/open/v1/runs/:runId
+GET  /api/open/v1/artifacts/:versionId
+Authorization: Bearer alp_...
+```
+
+平台命令覆盖 Workflow/KPI/Provider Route/Skill/Artifact/Comment/Approval/Benchmark/API Client/Webhook。开放接口只接受散列保存的作用域 API Key；Webhook 使用 HMAC-SHA256、幂等事件、指数退避、死信与 SSRF 防护。API Key 和签名密钥只在创建时显示一次。
+
 ## WorkBuddy Skill
 
 `workbuddy-skill/` 包含：
@@ -206,7 +227,7 @@ POST /api/v1/portfolio
 
 ## 项目状态
 
-当前属于“比赛可演示、P0 + P1 + P2 可供受控用户验证”的 Beta：核心持久化、身份隔离、异步执行、个人研究工作台、组合辅助决策和质量门禁已落地，但仍不是已经完成所有数据商业授权、消息通道认证、法律审查和高可用演练的正式金融产品。详细边界见 [Beta 手册](docs/BETA_OPERATIONS_AND_DATA_GOVERNANCE.md)。
+当前属于“比赛可演示、P0–P3 可供受控用户验证”的 Beta：核心持久化、身份隔离、异步执行、个人研究工作台、组合辅助决策、研究平台控制面和质量门禁已落地，但仍不是已经完成所有数据商业授权、消息通道认证、法律审查、全局限流和高可用演练的正式金融产品。详细边界见 [Beta 手册](docs/BETA_OPERATIONS_AND_DATA_GOVERNANCE.md)。
 
 ## Disclaimer
 

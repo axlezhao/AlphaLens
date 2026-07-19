@@ -504,3 +504,99 @@ export const portfolioActionConditions = sqliteTable("portfolio_action_condition
   idempotencyKey: text("idempotency_key").notNull(), triggeredAt: text("triggered_at"), acknowledgedAt: text("acknowledged_at"),
   asOf: text("as_of").notNull(), ...timestamps,
 }, (t) => [uniqueIndex("portfolio_action_conditions_idempotency_uq").on(t.portfolioId, t.idempotencyKey), index("portfolio_action_conditions_status_idx").on(t.portfolioId, t.status, t.updatedAt)]);
+
+export const researchWorkflows = sqliteTable("research_workflows", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  slug: text("slug").notNull(), name: text("name").notNull(), description: text("description"), ownerUserId: text("owner_user_id").notNull().references(() => users.id),
+  visibility: text("visibility", { enum: ["private", "workspace", "marketplace"] }).notNull().default("workspace"), ...timestamps,
+}, (t) => [uniqueIndex("research_workflows_workspace_slug_uq").on(t.workspaceId, t.slug), index("research_workflows_workspace_idx").on(t.workspaceId, t.updatedAt)]);
+
+export const researchWorkflowVersions = sqliteTable("research_workflow_versions", {
+  id: text("id").primaryKey(), logicalId: text("logical_id").notNull(), version: integer("version").notNull(),
+  workflowId: text("workflow_id").notNull().references(() => researchWorkflows.id, { onDelete: "cascade" }), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  semver: text("semver").notNull(), definitionJson: text("definition_json").notNull(), inputSchemaJson: text("input_schema_json").notNull().default("{}"), outputSchemaJson: text("output_schema_json").notNull().default("{}"),
+  status: text("status", { enum: ["draft", "published", "deprecated"] }).notNull().default("draft"), checksum: text("checksum").notNull(), supersedesId: text("supersedes_id"), publishedAt: text("published_at"), createdByUserId: text("created_by_user_id").notNull().references(() => users.id), ...timestamps,
+}, (t) => [uniqueIndex("research_workflow_versions_logical_uq").on(t.logicalId, t.version), uniqueIndex("research_workflow_versions_semver_uq").on(t.workflowId, t.semver), index("research_workflow_versions_workflow_idx").on(t.workflowId, t.status, t.updatedAt)]);
+
+export const workflowRuns = sqliteTable("workflow_runs", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), workflowVersionId: text("workflow_version_id").notNull().references(() => researchWorkflowVersions.id),
+  securityId: text("security_id").references(() => securities.id), requestedByUserId: text("requested_by_user_id").notNull().references(() => users.id),
+  status: text("status", { enum: ["queued", "running", "awaiting_review", "approved", "rejected", "published", "failed", "cancelled"] }).notNull(),
+  inputJson: text("input_json").notNull(), contextJson: text("context_json").notNull().default("{}"), asOf: text("as_of").notNull(), idempotencyKey: text("idempotency_key").notNull(), traceId: text("trace_id").notNull(), startedAt: text("started_at"), completedAt: text("completed_at"), errorMessage: text("error_message"), ...timestamps,
+}, (t) => [uniqueIndex("workflow_runs_idempotency_uq").on(t.workspaceId, t.idempotencyKey), index("workflow_runs_status_idx").on(t.status, t.updatedAt)]);
+
+export const workflowStepRuns = sqliteTable("workflow_step_runs", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), workflowRunId: text("workflow_run_id").notNull().references(() => workflowRuns.id, { onDelete: "cascade" }),
+  nodeKey: text("node_key").notNull(), nodeType: text("node_type", { enum: ["agent", "arbitration", "approval", "publish"] }).notNull(), agentRole: text("agent_role"), objective: text("objective"), dependsOnJson: text("depends_on_json").notNull().default("[]"),
+  status: text("status", { enum: ["pending", "queued", "running", "succeeded", "failed", "skipped", "waiting_approval"] }).notNull(), researchJobId: text("research_job_id").references(() => researchJobs.id), outputJson: text("output_json"), evidenceIdsJson: text("evidence_ids_json").notNull().default("[]"), scoreJson: text("score_json"), modelVersion: text("model_version"), promptVersion: text("prompt_version"), startedAt: text("started_at"), completedAt: text("completed_at"), errorMessage: text("error_message"), ...timestamps,
+}, (t) => [uniqueIndex("workflow_step_runs_node_uq").on(t.workflowRunId, t.nodeKey), index("workflow_step_runs_status_idx").on(t.workflowRunId, t.status)]);
+
+export const kpiModels = sqliteTable("kpi_models", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), slug: text("slug").notNull(), name: text("name").notNull(), sector: text("sector").notNull(), industry: text("industry"), ownerUserId: text("owner_user_id").notNull().references(() => users.id), ...timestamps,
+}, (t) => [uniqueIndex("kpi_models_workspace_slug_uq").on(t.workspaceId, t.slug), index("kpi_models_sector_idx").on(t.workspaceId, t.sector)]);
+
+export const kpiModelVersions = sqliteTable("kpi_model_versions", {
+  id: text("id").primaryKey(), logicalId: text("logical_id").notNull(), version: integer("version").notNull(), kpiModelId: text("kpi_model_id").notNull().references(() => kpiModels.id, { onDelete: "cascade" }), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  semver: text("semver").notNull(), metricsJson: text("metrics_json").notNull(), validationRulesJson: text("validation_rules_json").notNull().default("[]"), status: text("status", { enum: ["draft", "published", "deprecated"] }).notNull().default("draft"), checksum: text("checksum").notNull(), supersedesId: text("supersedes_id"), publishedAt: text("published_at"), createdByUserId: text("created_by_user_id").notNull().references(() => users.id), ...timestamps,
+}, (t) => [uniqueIndex("kpi_model_versions_logical_uq").on(t.logicalId, t.version), uniqueIndex("kpi_model_versions_semver_uq").on(t.kpiModelId, t.semver)]);
+
+export const providerRoutes = sqliteTable("provider_routes", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), category: text("category").notNull(), provider: text("provider").notNull(), capability: text("capability").notNull(), priority: integer("priority").notNull().default(100),
+  licenseScope: text("license_scope").notNull(), allowedUse: text("allowed_use").notNull(), maxLatencyMs: integer("max_latency_ms"), maxCostUsd: real("max_cost_usd"), freshnessSeconds: integer("freshness_seconds").notNull(), enabled: integer("enabled", { mode: "boolean" }).notNull().default(true), configJson: text("config_json").notNull().default("{}"), ...timestamps,
+}, (t) => [uniqueIndex("provider_routes_workspace_capability_uq").on(t.workspaceId, t.capability, t.provider), index("provider_routes_category_idx").on(t.workspaceId, t.category, t.priority)]);
+
+export const researchSkills = sqliteTable("research_skills", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), slug: text("slug").notNull(), name: text("name").notNull(), description: text("description").notNull(), publisherUserId: text("publisher_user_id").notNull().references(() => users.id), visibility: text("visibility", { enum: ["private", "workspace", "marketplace"] }).notNull().default("workspace"), category: text("category").notNull(), ...timestamps,
+}, (t) => [uniqueIndex("research_skills_workspace_slug_uq").on(t.workspaceId, t.slug), index("research_skills_marketplace_idx").on(t.visibility, t.category, t.updatedAt)]);
+
+export const researchSkillVersions = sqliteTable("research_skill_versions", {
+  id: text("id").primaryKey(), logicalId: text("logical_id").notNull(), version: integer("version").notNull(), skillId: text("skill_id").notNull().references(() => researchSkills.id, { onDelete: "cascade" }), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), semver: text("semver").notNull(), manifestJson: text("manifest_json").notNull(), instructions: text("instructions").notNull(), inputSchemaJson: text("input_schema_json").notNull().default("{}"), outputSchemaJson: text("output_schema_json").notNull().default("{}"), permissionsJson: text("permissions_json").notNull().default("{}"), status: text("status", { enum: ["draft", "published", "deprecated", "blocked"] }).notNull().default("draft"), checksum: text("checksum").notNull(), supersedesId: text("supersedes_id"), publishedAt: text("published_at"), validationJson: text("validation_json").notNull().default("{}"), ...timestamps,
+}, (t) => [uniqueIndex("research_skill_versions_logical_uq").on(t.logicalId, t.version), uniqueIndex("research_skill_versions_semver_uq").on(t.skillId, t.semver)]);
+
+export const skillInstallations = sqliteTable("skill_installations", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), skillVersionId: text("skill_version_id").notNull().references(() => researchSkillVersions.id), installedByUserId: text("installed_by_user_id").notNull().references(() => users.id), enabled: integer("enabled", { mode: "boolean" }).notNull().default(true), grantedPermissionsJson: text("granted_permissions_json").notNull().default("{}"), installedAt: text("installed_at").notNull(), updatedAt: text("updated_at").notNull(),
+}, (t) => [uniqueIndex("skill_installations_workspace_skill_uq").on(t.workspaceId, t.skillVersionId), index("skill_installations_workspace_idx").on(t.workspaceId, t.enabled)]);
+
+export const arbitrationDecisions = sqliteTable("arbitration_decisions", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), workflowRunId: text("workflow_run_id").notNull().references(() => workflowRuns.id, { onDelete: "cascade" }), stepRunId: text("step_run_id").references(() => workflowStepRuns.id), rubricVersion: text("rubric_version").notNull(), selectedCandidateId: text("selected_candidate_id"), candidateScoresJson: text("candidate_scores_json").notNull(), explanationJson: text("explanation_json").notNull(), dissentJson: text("dissent_json").notNull().default("[]"), confidence: real("confidence").notNull(), asOf: text("as_of").notNull(), createdAt: text("created_at").notNull(),
+}, (t) => [index("arbitration_decisions_run_idx").on(t.workflowRunId, t.createdAt)]);
+
+export const researchArtifacts = sqliteTable("research_artifacts", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), workflowRunId: text("workflow_run_id").references(() => workflowRuns.id), securityId: text("security_id").references(() => securities.id), logicalId: text("logical_id").notNull(), artifactType: text("artifact_type", { enum: ["report", "memo", "model", "dataset", "decision_card"] }).notNull(), title: text("title").notNull(), ownerUserId: text("owner_user_id").notNull().references(() => users.id), ...timestamps,
+}, (t) => [uniqueIndex("research_artifacts_workspace_logical_uq").on(t.workspaceId, t.logicalId), index("research_artifacts_run_idx").on(t.workflowRunId)]);
+
+export const researchArtifactVersions = sqliteTable("research_artifact_versions", {
+  id: text("id").primaryKey(), artifactId: text("artifact_id").notNull().references(() => researchArtifacts.id, { onDelete: "cascade" }), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), version: integer("version").notNull(), contentJson: text("content_json").notNull(), sourceSnapshotJson: text("source_snapshot_json").notNull().default("{}"), checksum: text("checksum").notNull(), status: text("status", { enum: ["draft", "in_review", "approved", "rejected", "published", "superseded"] }).notNull(), asOf: text("as_of").notNull(), createdByUserId: text("created_by_user_id").notNull().references(() => users.id), supersedesId: text("supersedes_id"), publishedAt: text("published_at"), ...timestamps,
+}, (t) => [uniqueIndex("research_artifact_versions_uq").on(t.artifactId, t.version), index("research_artifact_versions_status_idx").on(t.workspaceId, t.status, t.updatedAt)]);
+
+export const teamComments = sqliteTable("team_comments", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), artifactVersionId: text("artifact_version_id").notNull().references(() => researchArtifactVersions.id, { onDelete: "cascade" }), authorUserId: text("author_user_id").notNull().references(() => users.id), parentId: text("parent_id"), anchorJson: text("anchor_json").notNull().default("{}"), body: text("body").notNull(), status: text("status", { enum: ["open", "resolved"] }).notNull().default("open"), resolvedByUserId: text("resolved_by_user_id").references(() => users.id), resolvedAt: text("resolved_at"), ...timestamps,
+}, (t) => [index("team_comments_artifact_idx").on(t.artifactVersionId, t.status, t.createdAt)]);
+
+export const approvalRequests = sqliteTable("approval_requests", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), artifactVersionId: text("artifact_version_id").notNull().references(() => researchArtifactVersions.id, { onDelete: "cascade" }), requestedByUserId: text("requested_by_user_id").notNull().references(() => users.id), reviewerUserId: text("reviewer_user_id").references(() => users.id), requiredRole: text("required_role", { enum: ["owner", "editor"] }).notNull().default("editor"), status: text("status", { enum: ["pending", "approved", "changes_requested", "rejected", "cancelled"] }).notNull(), decisionNote: text("decision_note"), decidedByUserId: text("decided_by_user_id").references(() => users.id), decidedAt: text("decided_at"), ...timestamps,
+}, (t) => [index("approval_requests_status_idx").on(t.workspaceId, t.status, t.createdAt)]);
+
+export const benchmarkSuites = sqliteTable("benchmark_suites", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), slug: text("slug").notNull(), name: text("name").notNull(), description: text("description"), rubricJson: text("rubric_json").notNull(), version: integer("version").notNull().default(1), ownerUserId: text("owner_user_id").notNull().references(() => users.id), ...timestamps,
+}, (t) => [uniqueIndex("benchmark_suites_workspace_slug_uq").on(t.workspaceId, t.slug)]);
+
+export const benchmarkCases = sqliteTable("benchmark_cases", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), suiteId: text("suite_id").notNull().references(() => benchmarkSuites.id, { onDelete: "cascade" }), name: text("name").notNull(), inputJson: text("input_json").notNull(), expectedJson: text("expected_json").notNull(), tagsJson: text("tags_json").notNull().default("[]"), asOf: text("as_of").notNull(), createdAt: text("created_at").notNull(),
+}, (t) => [index("benchmark_cases_suite_idx").on(t.suiteId, t.createdAt)]);
+
+export const evaluationRuns = sqliteTable("evaluation_runs", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), suiteId: text("suite_id").notNull().references(() => benchmarkSuites.id), workflowVersionId: text("workflow_version_id").references(() => researchWorkflowVersions.id), skillVersionId: text("skill_version_id").references(() => researchSkillVersions.id), status: text("status", { enum: ["queued", "running", "succeeded", "failed"] }).notNull(), scoresJson: text("scores_json"), explanationsJson: text("explanations_json"), sampleCount: integer("sample_count").notNull().default(0), passedCount: integer("passed_count").notNull().default(0), modelVersion: text("model_version"), promptVersion: text("prompt_version"), asOf: text("as_of").notNull(), startedAt: text("started_at"), completedAt: text("completed_at"), ...timestamps,
+}, (t) => [index("evaluation_runs_suite_idx").on(t.suiteId, t.createdAt)]);
+
+export const apiClients = sqliteTable("api_clients", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), name: text("name").notNull(), keyPrefix: text("key_prefix").notNull(), secretHash: text("secret_hash").notNull(), scopesJson: text("scopes_json").notNull(), createdByUserId: text("created_by_user_id").notNull().references(() => users.id), enabled: integer("enabled", { mode: "boolean" }).notNull().default(true), expiresAt: text("expires_at"), lastUsedAt: text("last_used_at"), revokedAt: text("revoked_at"), ...timestamps,
+}, (t) => [uniqueIndex("api_clients_secret_hash_uq").on(t.secretHash), index("api_clients_workspace_idx").on(t.workspaceId, t.enabled)]);
+
+export const webhookSubscriptions = sqliteTable("webhook_subscriptions", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), name: text("name").notNull(), endpointUrl: text("endpoint_url").notNull(), eventTypesJson: text("event_types_json").notNull(), secretCiphertext: text("secret_ciphertext").notNull(), secretIv: text("secret_iv").notNull(), enabled: integer("enabled", { mode: "boolean" }).notNull().default(true), verificationStatus: text("verification_status", { enum: ["pending", "verified", "failing", "disabled"] }).notNull().default("pending"), consecutiveFailures: integer("consecutive_failures").notNull().default(0), lastDeliveryAt: text("last_delivery_at"), ...timestamps,
+}, (t) => [index("webhook_subscriptions_workspace_idx").on(t.workspaceId, t.enabled)]);
+
+export const webhookDeliveries = sqliteTable("webhook_deliveries", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), subscriptionId: text("subscription_id").notNull().references(() => webhookSubscriptions.id, { onDelete: "cascade" }), eventId: text("event_id").notNull(), eventType: text("event_type").notNull(), payloadJson: text("payload_json").notNull(), status: text("status", { enum: ["queued", "sending", "delivered", "failed", "dead_letter", "cancelled"] }).notNull(), attempts: integer("attempts").notNull().default(0), nextAttemptAt: text("next_attempt_at").notNull(), responseStatus: integer("response_status"), responseBody: text("response_body"), deliveredAt: text("delivered_at"), errorMessage: text("error_message"), ...timestamps,
+}, (t) => [uniqueIndex("webhook_deliveries_event_uq").on(t.subscriptionId, t.eventId), index("webhook_deliveries_queue_idx").on(t.status, t.nextAttemptAt)]);

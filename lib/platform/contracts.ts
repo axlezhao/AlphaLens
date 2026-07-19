@@ -1,0 +1,7 @@
+export type WorkflowNode = { id: string; type: "agent" | "arbitration" | "approval" | "publish"; role?: string; objective?: string; dependsOn?: string[]; skillSlug?: string; timeoutSeconds?: number };
+export type WorkflowDefinition = { nodes: WorkflowNode[]; maxParallelism?: number; failurePolicy?: "fail_fast" | "continue_independent"; arbitrationRubric?: ArbitrationRubric };
+export type ArbitrationRubric = { evidenceCoverage: number; sourceAuthority: number; contradictionHandling: number; freshness: number; reasoningClarity: number };
+export type AgentCandidate = { id: string; role: string; output: unknown; evidenceCount: number; primarySourceCount: number; contradictionsAddressed: number; staleSourceCount: number; reasoningSignals: number };
+export type ProviderRoute = { provider: string; category: string; capability: string; priority: number; enabled: boolean; licenseScope: string; allowedUse: string; maxLatencyMs?: number | null; maxCostUsd?: number | null; freshnessSeconds: number; health?: "healthy" | "degraded" | "open" | "disabled"; latencyMs?: number | null };
+export type ProviderRequest = { capability: string; use: "research" | "display" | "export"; maxLatencyMs?: number; maxCostUsd?: number; requireFreshnessSeconds?: number };
+export type ResearchSkillManifest = { name: string; description: string; version: string; category: string; inputs: string[]; outputs: string[]; permissions: { network?: string[]; data?: string[]; write?: string[] }; runtime?: { maxSeconds?: number; modelPolicy?: string } };

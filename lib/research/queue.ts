@@ -2,7 +2,7 @@ import { getD1 } from "../../db";
 import type { AuthContext } from "../auth/context";
 import { contentHash, stableId } from "../core/ids";
 
-export const MODEL_VERSION = process.env.RESEARCH_MODEL_VERSION ?? "deterministic-beta-0.4";
+export const MODEL_VERSION = process.env.RESEARCH_MODEL_VERSION ?? "deterministic-beta-0.5";
 export const PROMPT_VERSION = process.env.RESEARCH_PROMPT_VERSION ?? "equity-research-v1";
 
 export async function enqueueResearch(context: AuthContext, input: { ticker: string; question: string; asOf: string; idempotencyKey?: string }) {

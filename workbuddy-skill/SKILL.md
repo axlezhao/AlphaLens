@@ -1,6 +1,6 @@
 ---
 name: alphalens-us-equity-research
-description: 面向个人投资者的美股证据研究、投资论点、情景估值、组合暴露、压力测试、催化剂跟踪和复盘。用户提到美股代码、公司、财报、估值、投资论点、观察池、持仓、组合风险或投资复盘时使用。
+description: 面向个人投资者和研究团队的美股证据研究、版本化 Workflow、行业 KPI、Skill、多 Agent 仲裁、组合风险、团队审批与发布。用户提到美股代码、财报、估值、论点、观察池、组合风险、研究流程或团队发布时使用。
 ---
 
 # AlphaLens US Equity Research
@@ -21,6 +21,10 @@ description: 面向个人投资者的美股证据研究、投资论点、情景�
 8. 不调用券商交易接口，不读取无关私人文件，不在输出中泄露 API 密钥。
 9. 组合数据必须注明是用户输入还是授权 Provider 数据；缺失 NAV、价格、ADV、因子或收益率时输出缺口，不填造风险数字。
 10. 组合层只能生成触发谓词和行动条件，不能生成、提交或模拟成已提交的订单。
+11. Workflow 必须是有界 DAG；每个 Agent 明确 role、objective、Skill、依赖与 `as_of`。
+12. Skill 只能使用 Manifest 声明且由 Workspace 授予的最小权限；禁止通配网络和越界写入。
+13. 多 Agent 仲裁必须保留候选评分、解释和少数意见，不得用多数投票替代证据核验。
+14. 研究版本只有在开放评论解决且角色审批通过后才可发布。
 
 ## 工作流
 
@@ -32,6 +36,16 @@ description: 面向个人投资者的美股证据研究、投资论点、情景�
 6. `CHALLENGE`：独立检查确认偏误、来源冲突、估值口径和遗漏风险。
 7. `PERSIST`：写入 `workspace/alphalens/<TICKER>/`，保留稳定 ID 与版本号。
 8. `HANDOFF`：生成一页决策卡、完整报告和下一次复核触发器。
+
+平台任务在 `SOURCE` 前后增加：
+
+1. `CONFIGURE`：选择已发布 Workflow、行业 KPI 版本与已安装 Skill。
+2. `ROUTE`：按能力、许可用途、健康度、新鲜度、成本和延迟选择 Provider 与 fallback。
+3. `DELEGATE`：把 filings、expectations、valuation 和 challenge 分给独立 Agent。
+4. `ARBITRATE`：按证据覆盖、来源权威、反证处理、新鲜度与推理清晰度评分，保留 dissent。
+5. `REVIEW`：创建不可变 Artifact Version，完成团队评论与角色审批。
+6. `EVALUATE`：运行质量 Benchmark；任何时间泄漏都判为失败。
+7. `PUBLISH`：发布获批版本并通过签名 Webhook 通知下游。
 
 组合任务在 `NORMALIZE` 后增加：
 
@@ -60,6 +74,17 @@ workspace/alphalens/portfolios/<PORTFOLIO>/
 ├── portfolio_risk.json
 ├── stress_scenarios.json
 └── action_conditions.json
+```
+
+平台任务另外生成：
+
+```text
+workspace/alphalens/platform/<WORKFLOW_RUN>/
+├── workflow_run.json
+├── agent_candidates/
+├── arbitration.json
+├── quality_evaluation.json
+└── published_artifact.md
 ```
 
 ## 决策卡字段

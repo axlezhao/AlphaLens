@@ -4,9 +4,10 @@ import { FormEvent, useMemo, useState } from "react";
 import { researchIdempotencyKey } from "../lib/research/idempotency";
 import PersonalWorkbench from "./workbench";
 import PortfolioWorkbench from "./portfolio";
+import ResearchPlatform from "./platform";
 
 type Ticker = "NVDA" | "MSFT" | "AMZN";
-type View = "desk" | "workbench" | "portfolio" | "thesis" | "scenario" | "evidence";
+type View = "desk" | "workbench" | "portfolio" | "platform" | "thesis" | "scenario" | "evidence";
 
 const stocks: Record<Ticker, {
   name: string; price: number; change: number; status: string; readiness: number;
@@ -33,9 +34,10 @@ const nav: { id: View; label: string; short: string }[] = [
   { id: "desk", label: "今日研究台", short: "01" },
   { id: "workbench", label: "个人工作台", short: "02" },
   { id: "portfolio", label: "组合决策", short: "03" },
-  { id: "thesis", label: "投资论点", short: "04" },
-  { id: "scenario", label: "情景实验室", short: "05" },
-  { id: "evidence", label: "证据库", short: "06" },
+  { id: "platform", label: "研究平台", short: "04" },
+  { id: "thesis", label: "投资论点", short: "05" },
+  { id: "scenario", label: "情景实验室", short: "06" },
+  { id: "evidence", label: "证据库", short: "07" },
 ];
 
 const evidence = [
@@ -165,6 +167,7 @@ export default function Home() {
           {view === "desk" && <Desk stock={stock} ticker={ticker} setView={setView} />}
           {view === "workbench" && <PersonalWorkbench ticker={ticker} />}
           {view === "portfolio" && <PortfolioWorkbench />}
+          {view === "platform" && <ResearchPlatform />}
           {view === "thesis" && <Thesis stock={stock} ticker={ticker} setView={setView} />}
           {view === "scenario" && <Scenario stock={stock} ticker={ticker} revenue={revenue} multiple={multiple} scenarioPrice={scenarioPrice} upside={upside} setRevenue={setRevenue} setMultiple={setMultiple} />}
           {view === "evidence" && <Evidence filter={filter} setFilter={setFilter} />}

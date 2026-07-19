@@ -6,7 +6,7 @@ AlphaLens 当前定位为：
 
 > 比赛可完整演示、核心后端可运行、具备数据治理和质量门禁的受控 Beta。
 
-P0 工程能力、P1 个人研究工作台和 P2 组合辅助决策已落地；正式商用仍取决于数据许可、消息通道认证、法律审查、全局限流、删除作业 SLA 与高可用演练。
+P0 工程能力、P1 个人研究工作台、P2 组合辅助决策和 P3 研究平台化已落地；正式商用仍取决于数据许可、消息通道认证、法律审查、全局限流、删除作业 SLA 与高可用演练。
 
 ## 2. 现在能做什么
 
@@ -37,12 +37,20 @@ P0 工程能力、P1 个人研究工作台和 P2 组合辅助决策已落地；�
 | 相关性与压力测试 | P2 Beta | 用户导入收益率 Pearson 矩阵；可版本化 ticker/行业/因子/币种/事件冲击 |
 | 风险联动 | P2 完成 | 论点弱化、证伪、仓位/行业/因子/事件和压力预算生成行动条件 |
 | 组合催化剂 | P2 完成 | 聚合持仓公司事件并显示日期确认与陈旧性 |
+| Research Workflow | P3 完成 | 可配置 DAG、不可变版本、并行节点、恢复状态和人工审批边界 |
+| 行业 KPI Registry | P3 Beta | 半导体、SaaS/软件、银行模板；定义与验证规则可版本化 |
+| Research Skill Marketplace | P3 完成 | Manifest 校验、显式权限、Workspace 安装与运行时指令注入 |
+| 多 Agent 仲裁 | P3 完成 | 独立角色输出按证据/权威/反证/新鲜度/清晰度评分，保留少数意见 |
+| 团队研究发布 | P3 完成 | 评论锚点、角色审批、开放评论门禁、不可变发布版本 |
+| Open API / Webhook | P3 Beta | 作用域 API Key、HMAC 签名、Outbox 重试/死信和 SSRF 防护 |
 
 ### 2.2 工程能力
 
 | 能力 | 当前状态 | 说明 |
 |---|---|---|
-| D1 领域模型 | 已完成 | 38 张表，覆盖租户、研究、P1/P2、版本、队列、通知、审计和风险快照 |
+| D1 领域模型 | 已完成 | 59 张表，覆盖租户、研究、P1/P2/P3、版本、队列、通知、审计和风险快照 |
+| 动态 Provider 路由 | P3 完成 | 每次研究按能力、许可用途、健康度、成本/延迟和新鲜度选择与降级 |
+| 平台质量基准 | P3 完成 | 可解释维度评分；时间泄漏为硬失败；结果持久化 |
 | 弹性 Provider | 已完成 | SEC、同域 IR、授权 Alpha Vantage；缓存/重试/熔断/stale |
 | 异步研究 API | 已完成 | Unicode 安全幂等键、租约、轮询、SSE、取消、超时、重试和恢复 |
 | 身份与权限 | 已完成 | Sites SIWC、Workspace RBAC、服务端租户过滤 |
@@ -70,6 +78,12 @@ POST   /api/v1/implied-expectations
 GET    /api/v1/reports/:ticker?format=markdown|pdf|xlsx
 GET    /api/v1/portfolio
 POST   /api/v1/portfolio
+GET    /api/v1/platform
+POST   /api/v1/platform
+GET    /api/v1/platform/runs/:runId
+POST   /api/open/v1/research
+GET    /api/open/v1/runs/:runId
+GET    /api/open/v1/artifacts/:versionId
 ```
 
 `POST /api/v1/research` 创建异步 Beta 任务。行情与一致预期仅在显式确认授权后开启，任何接口都不会执行证券交易。
@@ -166,16 +180,18 @@ P1 的“实现”指应用链路、数据模型、API、UI、测试和连接器
 
 P2 的“实现”指数据模型、Workspace 隔离 API、风险计算、持久化快照、UI 和回归测试已完成。当前价格、因子、ADV 和收益率来自用户输入或显式授权来源；未接券商账户和商业风险模型，因此不应把缺失输入下的结果称为完整机构级风险测算。
 
-### P3：研究平台化
+### P3：研究平台化（已实现）
 
-- 可配置 Research Workflow；
-- 行业专用 KPI 模型；
-- 多数据商动态路由；
-- Research Skill Marketplace；
-- 多 Agent 分工与结果仲裁；
-- 团队评论、审批和研究版本发布；
-- 研究质量基准和可解释评估；
-- 开放 API 与 Webhook。
+- [x] 可配置、校验、版本化与发布 Research Workflow；
+- [x] 行业专用 KPI 模型与定义版本；
+- [x] 按授权用途、健康、新鲜度、延迟和成本进行多数据商动态路由；
+- [x] Research Skill Marketplace、Manifest 校验和最小权限安装；
+- [x] 多 Agent 分工、独立候选结果、加权仲裁与少数意见；
+- [x] 团队评论、角色审批、开放评论门禁和研究版本发布；
+- [x] 研究质量 Benchmark、维度分数、失败解释和时间泄漏硬门禁；
+- [x] 作用域 API Key、开放研究 API、HMAC Webhook、重试与死信。
+
+P3 的“实现”指平台控制面、D1 模型、运行时接线、UI、API 和回归测试已完成。Beta 仍使用确定性研究合成器；跨区域全局限流、生产密钥轮换、Webhook DNS 解析后私网复核、更多商业数据商适配器和正式团队目录同步仍是上线工作。
 
 ## 6. 未来可以做什么
 
@@ -243,6 +259,7 @@ P2 的“实现”指数据模型、Workspace 隔离 API、风险计算、持久
 | Closed Beta | 已完成核心工程 | 用户系统 + 观察池 + 催化剂 | 多用户隔离、数据可追踪 |
 | Research Beta | 已完成 P1 核心工程 | 财报工作流 + 复盘 + 质量体系 | 生产数据/消息凭据配置后进入用户验证 |
 | Portfolio Beta | 12 周以上 | 组合风险和行动条件 | 组合层风险解释稳定且可审计 |
+| Research Platform Beta | 已完成核心工程 | Workflow + Skill + 仲裁 + 协作 + API | 获授权数据与生产安全控制配置后进入团队验证 |
 
 周期是对小型工程团队的粗略估计，取决于数据授权、Provider 质量和合规要求。
 

@@ -25,6 +25,8 @@ P1 工作台复用相同租户与任务基础设施。财报 Preview / Deep Dive
 
 P2 组合层继续复用 Workspace RBAC 与审计。持仓、风险政策、收益率、相关性快照、情景版本/结果、风险快照和行动条件全部按 `workspace_id + portfolio_id` 隔离。组合分析是同步、确定性的纯计算，不调用外部交易系统；`risk.refresh` 按输入哈希去重快照并保存触发条件。
 
+P3 平台层在同一队列上增加 WorkflowRun/StepRun 编排。根 Agent 可独立调度，依赖节点只在前置成功后运行；仲裁结果、候选评分与少数意见持久化。研究发布通过评论和角色审批门禁，完成/失败/发布事件进入可靠 Webhook Outbox。`platform-worker` 同步研究任务、推进 Workflow 并投递 Webhook。
+
 ## 2. 数据来源与授权边界
 
 | 数据 | 实现 | Beta 边界 | 默认新鲜度 |
@@ -61,7 +63,7 @@ SEC 在单 Worker 内限制为每 125ms 一次（8 req/s，低于公开的 10 re
 
 ## 5. 数据模型与版本规则
 
-基础迁移位于 `drizzle/0000_pretty_squadron_sinister.sql`，P1 增量迁移位于 `drizzle/0001_yielding_domino.sql`，P2 增量迁移位于 `drizzle/0002_opposite_gressill.sql`，共 38 张表。P2 新增 PortfolioPosition、PortfolioRiskPolicy、PortfolioReturnSeries、PortfolioCorrelationSnapshot、PortfolioScenario/Result、PortfolioRiskSnapshot 和 PortfolioActionCondition。
+基础迁移位于 `drizzle/0000_pretty_squadron_sinister.sql`，P1/P2 增量迁移分别位于 `0001`/`0002`，P3 增量迁移位于 `drizzle/0003_funny_ares.sql`，共 59 张表。P3 新增 Workflow/Step Run、KPI Model、Provider Route、Research Skill/Installation、Arbitration、Artifact Version、Comment/Approval、Benchmark/Evaluation、API Client 和 Webhook Outbox 模型。
 
 - 稳定 ID：自然键经命名空间 SHA-256 生成，不依赖数据库自增值。
 - Evidence/Thesis：`logical_id + version` 唯一，新版本记录 `supersedes_id`。
@@ -76,14 +78,17 @@ SEC 在单 Worker 内限制为每 125ms 一次（8 req/s，低于公开的 10 re
 - Position 保留 `price_as_of`、`data_status`、币种、ADV 与因子/事件输入；默认标记为 `user_input`，不得冒充实时行情。
 - Scenario 通过 `logical_id + version + supersedes_id` 保留版本；Result 和 RiskSnapshot 通过输入哈希幂等。
 - ActionCondition 只保存谓词、严重度、说明和人工确认状态；没有订单或执行字段。
+- Workflow/KPI/Skill/Artifact 使用稳定逻辑 ID 与不可变版本；每个 Run 固化版本、`as_of` 和 trace。
+- API Client 只保存 Key prefix 与 SHA-256 hash；明文只在创建响应出现一次。
+- Webhook Subscription 使用 AES-GCM 保存签名密钥；Delivery 按 subscription + event 幂等并最多尝试八次。
 
 ## 6. 运维配置
 
 必需环境变量：
 
 ```bash
-SEC_USER_AGENT="AlphaLens/0.4 monitored@example.com"
-IR_USER_AGENT="AlphaLens/0.4 monitored@example.com"
+SEC_USER_AGENT="AlphaLens/0.5 monitored@example.com"
+IR_USER_AGENT="AlphaLens/0.5 monitored@example.com"
 WORKER_SHARED_SECRET="a-long-random-secret"
 CONNECTOR_ENCRYPTION_KEY="at-least-16-random-characters"
 ```
@@ -113,6 +118,13 @@ POST /api/internal/workbench-worker
 Authorization: Bearer <WORKER_SHARED_SECRET>
 ```
 
+P3 Workflow 推进与 Webhook Outbox 建议每 15–30 秒调用：
+
+```http
+POST /api/internal/platform-worker
+Authorization: Bearer <WORKER_SHARED_SECRET>
+```
+
 邮件经 Resend REST API 发送并使用 `Idempotency-Key`；默认限流下必须保留队列。企业微信仅接受 `https://qyapi.weixin.qq.com/...` 官方机器人 Webhook。微信公众号只有在获得用户订阅/授权并配置官方账号或获准服务商后才启用；普通个人微信不支持未经授权的主动私信。
 
 主要 API：
@@ -131,11 +143,17 @@ POST   /api/v1/implied-expectations
 GET    /api/v1/reports/:ticker?format=markdown|pdf|xlsx
 GET    /api/v1/portfolio?portfolioId=...
 POST   /api/v1/portfolio
+GET    /api/v1/platform
+POST   /api/v1/platform
+GET    /api/v1/platform/runs/:runId
+POST   /api/open/v1/research
+GET    /api/open/v1/runs/:runId
+GET    /api/open/v1/artifacts/:versionId
 ```
 
 ## 7. 质量门禁
 
-`tests/quality.test.ts` 覆盖财务数字双来源 Tie-out、来源冲突、DCF 金样、`as_of` 时间穿越和置信度校准；`tests/provider-contract.test.ts` 覆盖 Provider 契约、缓存和 stale fallback；`tests/workbench.test.ts` 覆盖两套隐含预期反推、偏差聚合以及 Markdown/PDF/XLSX 文件签名；`tests/portfolio.test.ts` 覆盖 Long/Short 符号、Gross/Net、相关性样本门槛、压力损失预算、论点证伪联动和“无订单字段”约束；`tests/fixtures/regression-universe.json` 包含科技、银行、能源、REIT 和生物制药样本。
+`tests/quality.test.ts` 覆盖财务数字双来源 Tie-out、来源冲突、DCF 金样、`as_of` 时间穿越和置信度校准；`tests/provider-contract.test.ts` 覆盖 Provider 契约、缓存和 stale fallback；`tests/workbench.test.ts` 覆盖两套隐含预期反推、偏差聚合以及 Markdown/PDF/XLSX 文件签名；`tests/portfolio.test.ts` 覆盖组合风险与“无订单字段”约束；`tests/platform.test.ts` 覆盖 DAG 循环、Skill 权限、Provider 路由、仲裁解释、时间泄漏硬门禁和 Webhook SSRF；`tests/fixtures/regression-universe.json` 包含科技、银行、能源、REIT 和生物制药样本。
 
 发布门禁：类型检查、单元测试、正式构建、渲染测试全部通过。真实数据上线还必须跑在线 Provider smoke test，并由人工抽检 SEC 原文、期间、单位、币种、拆股口径和一致预期时间戳。
 
@@ -151,6 +169,9 @@ POST   /api/v1/portfolio
 - 官方 IR Feed 地址需要在 Security 记录中显式配置；缺失时催化剂刷新返回 `degraded`，不抓取未批准的聚合站。
 - 当前 PDF 使用 PDF 标准 CJK 字体映射以保持 Worker 端轻量生成；对归档级 PDF/A 或品牌字体有要求时应改为嵌入授权字体的渲染服务。
 - P2 尚未接券商账户、商业因子模型或授权组合数据；价格、因子、ADV 和收益率必须由用户或授权 Provider 提供。相关性是历史 Pearson 描述统计，不等于危机期相关性保证。
+- P3 默认含三个行业 KPI 模板和三个内置 Research Skill，不代表全行业口径已完成；新增模板必须经过定义、单位、期间和回归样本评审。
+- Open API 尚需部署侧全局/分布式速率限制、密钥轮换 SLA 和异常用量告警；应用层已具备 scope、撤销、过期和审计。
+- Webhook 已阻止显式本机/私网 endpoint；正式生产还需在连接时校验 DNS 解析 IP 并限制出口，以防 DNS rebinding。
 - 本系统不下单，不构成投资建议。
 
 ## 9. 常见故障

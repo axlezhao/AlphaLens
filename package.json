@@ -1,6 +1,6 @@
 {
   "name": "alphalens-investment-os",
-  "version": "0.4.0-beta",
+  "version": "0.5.0-beta",
   "private": true,
   "packageManager": "pnpm@11.9.0",
   "engines": {

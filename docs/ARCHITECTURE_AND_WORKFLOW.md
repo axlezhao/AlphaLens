@@ -327,6 +327,34 @@ flowchart LR
 
 行动条件只包含触发器、谓词、严重度、解释和确认状态；数据模型与 API 均不存在券商订单、交易数量、路由或执行字段。
 
+### 5.9 P3 研究平台化链路
+
+```mermaid
+flowchart LR
+  D["Workflow Designer"] --> V["DAG / Schema / Permission Validation"]
+  V --> W["Immutable Workflow Version"]
+  W --> R["Workflow Run"]
+  R --> A1["Filings Agent + Skill"]
+  R --> A2["Expectations Agent + Skill"]
+  R --> A3["Risk Challenger + Skill"]
+  P["Provider Route Policies"] --> A1 & A2 & A3
+  A1 & A2 & A3 --> J["Explainable Arbitration"]
+  J --> X["Research Artifact Version"]
+  X --> C["Team Comments"]
+  C --> Q["Role Approval"]
+  Q --> B["Quality Benchmark"]
+  B --> U["Published Version"]
+  U --> H["Signed Webhook / Scoped API"]
+```
+
+Workflow 定义是有向无环图，节点限制、依赖存在性、循环和仲裁节点数量在发布前校验。每次运行固化 Workflow、Skill、模型、Prompt、`as_of` 与 trace；Agent 根节点可独立进入租约队列，失败策略决定其余分支是否继续。Skill 只有在 Workspace 安装且授权范围不超过 Manifest 声明时才会把指令注入节点。
+
+Provider 不是硬编码“谁先返回用谁”，而是先按 capability、allowed use、健康/熔断状态、新鲜度、延迟和成本预算过滤，再给出 selected、fallback、rejected 与解释。SEC 仍是 filings 的必需权威来源；没有合法行情/一致预期授权时对应节点明确降级。
+
+仲裁不会把多个 Agent 的文本投票当成事实。它保留每个候选输出，按证据覆盖、来源权威、反证处理、新鲜度与推理清晰度逐项评分，并保存胜出者、置信度、解释和接近阈值的少数意见。研究版本必须解决开放评论、通过所需角色审批后才能发布；发布事件进入幂等 Webhook Outbox。
+
+开放 API Key 只保存 SHA-256 摘要和前缀，按 scope 授权；Webhook 密钥加密保存，投递使用 `t=<unix>,v1=<HMAC-SHA256>` 签名、幂等 ID、指数退避与死信。URL 校验阻止明文 HTTP、凭据 URL、本机和字面私网地址；生产环境仍应在连接时复核 DNS 解析结果以防 rebinding。
+
 ## 6. 错误处理与降级
 
 | 场景 | 系统行为 |
@@ -371,9 +399,13 @@ flowchart LR
 | Web 工作台 | `app/page.tsx` |
 | P1 个人研究工作台 | `app/workbench.tsx` |
 | P2 组合辅助决策 | `app/portfolio.tsx` |
+| P3 研究平台控制面 | `app/platform.tsx` |
 | 研究任务 API | `app/api/v1/research/route.ts` |
 | P1 查询与命令 API | `app/api/v1/workbench/route.ts` |
 | P2 组合查询与命令 API | `app/api/v1/portfolio/route.ts` |
+| P3 平台查询与命令 API | `app/api/v1/platform/route.ts` |
+| Scoped Open API | `app/api/open/v1/research/route.ts` |
+| Workflow/Webhook Worker | `app/api/internal/platform-worker/route.ts` |
 | 隐含预期 API | `app/api/v1/implied-expectations/route.ts` |
 | 报告导出 API | `app/api/v1/reports/[ticker]/route.ts` |
 | 催化剂/通知 Worker | `app/api/internal/workbench-worker/route.ts` |
@@ -382,6 +414,9 @@ flowchart LR
 | Demo Provider | `lib/research/demo-adapter.ts` |
 | P1 领域服务 | `lib/workbench/service.ts` |
 | P2 组合服务 | `lib/portfolio/service.ts` |
+| P3 平台服务与编排 | `lib/platform/service.ts`、`lib/platform/orchestrator.ts` |
+| Provider 路由与仲裁 | `lib/platform/provider-routing.ts`、`lib/platform/analytics.ts` |
+| API Key 与 Webhook | `lib/platform/api-auth.ts`、`lib/platform/webhooks.ts` |
 | 暴露、相关性、压力与行动条件 | `lib/portfolio/analytics.ts` |
 | 提醒连接器与可靠 Outbox | `lib/workbench/connectors.ts` |
 | 隐含预期和偏差统计 | `lib/workbench/analytics.ts` |
@@ -390,3 +425,4 @@ flowchart LR
 | Skill Manifest | `workbuddy-skill/skill.yml` |
 | 服务端渲染测试 | `tests/rendered-html.test.mjs` |
 | 组合风险回归测试 | `tests/portfolio.test.ts` |
+| 平台治理回归测试 | `tests/platform.test.ts` |

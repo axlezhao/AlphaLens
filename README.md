@@ -23,7 +23,7 @@ AlphaLens 因此被设计成“投资论点操作系统”，而不是资讯聚�
 
 ## 当前 Beta
 
-0.2 Beta 已把原有同步 Demo 升级为可恢复、可审计的研究后端，同时保留稳定的比赛展示界面：
+0.3 Beta 已在可恢复、可审计的研究后端之上完成 P1 个人投资研究工作台，同时保留稳定的比赛展示界面：
 
 1. 输入股票代码或研究问题；
 2. 异步检索 SEC、获准的公司 IR、行情与一致预期，并执行证据核验；
@@ -32,6 +32,10 @@ AlphaLens 因此被设计成“投资论点操作系统”，而不是资讯聚�
 5. 调整收入增长和估值倍数，观察 Bull/Base/Bear 结果；
 6. 在证据库中区分事实、预期和风险；
 7. 跟踪后续财报与催化剂。
+
+“个人工作台”现已支持用户自定义观察池、论点版本时间线、可编辑证伪条件、财报前 Preview / 财报后 Deep Dive、官方 IR 催化剂刷新、邮件/企业微信/微信公众号连接器、同行比较、当前价格隐含预期反推、复盘与认知偏差统计，以及 Markdown、PDF、Excel 报告导出。
+
+其中，企业微信使用官方机器人 Webhook；邮件需要配置 Resend；个人微信提醒需要已获授权的微信公众号能力。未配置凭据的通道会显示为“需密钥/需官方账号”，不会伪造发送成功。
 
 研究问题支持中文及其他 Unicode 文本；客户端只把问题的 SHA-256 摘要写入 `Idempotency-Key`，原始问题始终保留在 UTF-8 JSON 请求体中。
 
@@ -83,7 +87,7 @@ Decision Card / Watchlist / Review Log
 - Next.js / React / TypeScript
 - Vinext + Vite
 - Cloudflare Workers-compatible runtime
-- D1 多租户持久化与可恢复任务队列
+- D1 多租户持久化、P1 工作台与可恢复任务队列
 - SEC / IR / Alpha Vantage 弹性 Provider
 - Sites Sign in with ChatGPT 与 Workspace RBAC
 - WorkBuddy Skill 包：`workbuddy-skill/`
@@ -95,10 +99,13 @@ Decision Card / Watchlist / Review Log
 .
 ├── app/                        # Web UI 与 API Routes
 │   ├── api/health/             # 健康检查
-│   └── api/v1/research/        # 研究任务 API
-├── db/ + drizzle/              # 18 张 D1 表与版本化迁移
+│   ├── api/v1/research/        # 研究任务 API
+│   ├── api/v1/workbench/       # P1 工作台查询与命令 API
+│   └── workbench.tsx           # 个人研究工作台界面
+├── db/ + drizzle/              # 30 张 D1 表与版本化迁移
 ├── lib/providers/              # SEC、IR、行情/预期与弹性策略
 ├── lib/research/               # 队列、执行器、证据版本与研究快照
+├── lib/workbench/              # 隐含预期、连接器、导出与 P1 领域服务
 ├── docs/                       # 架构、Workflow 与路线图
 ├── workbuddy-skill/            # 可导入 WorkBuddy 的 Skill 包
 ├── tests/                      # 服务端渲染验证
@@ -152,6 +159,17 @@ Content-Type: application/json
 
 接口返回 `202` 和可追踪的 Beta Job。客户端可轮询 `/api/v1/research/:jobId`，或从 `/events` 读取 SSE；任务支持幂等、重试、超时、取消和失败恢复。完整 API 与 Worker 配置见 [Beta 手册](docs/BETA_OPERATIONS_AND_DATA_GOVERNANCE.md)。
 
+### 个人工作台与导出
+
+```http
+GET  /api/v1/workbench?ticker=NVDA
+POST /api/v1/workbench
+POST /api/v1/implied-expectations
+GET  /api/v1/reports/NVDA?format=markdown|pdf|xlsx
+```
+
+`POST /api/v1/workbench` 使用显式 `action` 执行观察池、论点/证伪条件版本、财报工作流、催化剂、提醒、同行组和复盘写入。所有操作都先经过登录、Workspace RBAC 与审计。
+
 ## WorkBuddy Skill
 
 `workbuddy-skill/` 包含：
@@ -174,7 +192,7 @@ Content-Type: application/json
 
 ## 项目状态
 
-当前属于“比赛可演示、可供受控用户验证”的 Beta：核心持久化、身份隔离、异步执行和质量门禁已落地，但仍不是已经完成所有数据商业授权、法律审查和高可用演练的正式金融产品。详细边界见 [Beta 手册](docs/BETA_OPERATIONS_AND_DATA_GOVERNANCE.md)。
+当前属于“比赛可演示、P0 + P1 可供受控用户验证”的 Beta：核心持久化、身份隔离、异步执行、个人研究工作台和质量门禁已落地，但仍不是已经完成所有数据商业授权、消息通道认证、法律审查和高可用演练的正式金融产品。详细边界见 [Beta 手册](docs/BETA_OPERATIONS_AND_DATA_GOVERNANCE.md)。
 
 ## Disclaimer
 

@@ -44,6 +44,25 @@ flowchart LR
     P --> E
 ```
 
+P1 把单次研究链路扩展成持续工作台：
+
+```mermaid
+flowchart LR
+    WL["用户观察池"] --> TH["论点 + 证伪条件版本"]
+    TH --> EP["财报前 Preview"]
+    EP --> ED["财报后 Deep Dive"]
+    IR["官方 IR 催化剂订阅"] --> OB["可靠通知 Outbox"]
+    OB --> EM["Email"]
+    OB --> WC["企业微信 / 微信公众号"]
+    TH --> CP["同行比较"]
+    CP --> IE["价格隐含预期反推"]
+    ED --> RV["复盘模板 + 偏差统计"]
+    RV --> TH
+    TH & ED & CP --> EX["Markdown / PDF / XLSX"]
+```
+
+每一次 P1 写入都携带 `workspace_id` 与 `as_of`；论点和证伪条件追加新版本，不覆盖历史。财报工作流复用 ResearchJob 队列；催化剂与通知由独立内部 Worker 刷新和投递，失败保留可重试状态。
+
 ## 3. 系统分层
 
 ### 3.1 交互层
@@ -328,11 +347,19 @@ Agent 先保存权威事实，再做归因和推断。推断必须显式标记�
 | 设计模块 | 当前实现 |
 |---|---|
 | Web 工作台 | `app/page.tsx` |
+| P1 个人研究工作台 | `app/workbench.tsx` |
 | 研究任务 API | `app/api/v1/research/route.ts` |
+| P1 查询与命令 API | `app/api/v1/workbench/route.ts` |
+| 隐含预期 API | `app/api/v1/implied-expectations/route.ts` |
+| 报告导出 API | `app/api/v1/reports/[ticker]/route.ts` |
+| 催化剂/通知 Worker | `app/api/internal/workbench-worker/route.ts` |
 | 健康检查 | `app/api/health/route.ts` |
 | 领域契约 | `lib/research/contracts.ts` |
 | Demo Provider | `lib/research/demo-adapter.ts` |
+| P1 领域服务 | `lib/workbench/service.ts` |
+| 提醒连接器与可靠 Outbox | `lib/workbench/connectors.ts` |
+| 隐含预期和偏差统计 | `lib/workbench/analytics.ts` |
+| Markdown/PDF/XLSX 生成 | `lib/workbench/exports.ts` |
 | WorkBuddy Workflow | `workbuddy-skill/SKILL.md` |
 | Skill Manifest | `workbuddy-skill/skill.yml` |
 | 服务端渲染测试 | `tests/rendered-html.test.mjs` |
-

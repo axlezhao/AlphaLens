@@ -2,9 +2,10 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { researchIdempotencyKey } from "../lib/research/idempotency";
+import PersonalWorkbench from "./workbench";
 
 type Ticker = "NVDA" | "MSFT" | "AMZN";
-type View = "desk" | "thesis" | "scenario" | "evidence";
+type View = "desk" | "workbench" | "thesis" | "scenario" | "evidence";
 
 const stocks: Record<Ticker, {
   name: string; price: number; change: number; status: string; readiness: number;
@@ -29,9 +30,10 @@ const stocks: Record<Ticker, {
 
 const nav: { id: View; label: string; short: string }[] = [
   { id: "desk", label: "今日研究台", short: "01" },
-  { id: "thesis", label: "投资论点", short: "02" },
-  { id: "scenario", label: "情景实验室", short: "03" },
-  { id: "evidence", label: "证据库", short: "04" },
+  { id: "workbench", label: "个人工作台", short: "02" },
+  { id: "thesis", label: "投资论点", short: "03" },
+  { id: "scenario", label: "情景实验室", short: "04" },
+  { id: "evidence", label: "证据库", short: "05" },
 ];
 
 const evidence = [
@@ -159,6 +161,7 @@ export default function Home() {
           <div className="eyebrow"><span>ALPHALENS / {view.toUpperCase()}</span><span>数据截至 2026.07.17 · 16:00 ET</span></div>
 
           {view === "desk" && <Desk stock={stock} ticker={ticker} setView={setView} />}
+          {view === "workbench" && <PersonalWorkbench ticker={ticker} />}
           {view === "thesis" && <Thesis stock={stock} ticker={ticker} setView={setView} />}
           {view === "scenario" && <Scenario stock={stock} ticker={ticker} revenue={revenue} multiple={multiple} scenarioPrice={scenarioPrice} upside={upside} setRevenue={setRevenue} setMultiple={setMultiple} />}
           {view === "evidence" && <Evidence filter={filter} setFilter={setFilter} />}

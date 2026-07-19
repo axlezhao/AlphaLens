@@ -63,6 +63,7 @@ SEC 在单 Worker 内限制为每 125ms 一次（8 req/s，低于公开的 10 re
 - Evidence/Thesis：`logical_id + version` 唯一，新版本记录 `supersedes_id`。
 - Source/Evidence 去重：Workspace 范围内的内容哈希唯一。
 - ResearchJob 去重：Workspace 范围内的 `idempotency_key` 唯一。
+- 浏览器幂等头：对 ticker、问题和 `as_of` 日期的规范化 JSON 做 SHA-256，只发送 ASCII 摘要；Unicode 原文留在 JSON body，禁止直接拼入 HTTP Header。
 - 每个 Job 固化 `as_of`、model version、prompt version、trace ID 和最终 snapshot。
 
 ## 6. 运维配置
@@ -114,3 +115,9 @@ GET    /api/health
 - 数据删除采用请求式流程，实际 purge 需要受控后台作业与保留策略。
 - 无 Alpha Vantage 商业/授权协议时，行情和一致预期会明确降级，不用演示数据冒充实时数据。
 - 本系统不下单，不构成投资建议。
+
+## 9. 常见故障
+
+### `String contains non ISO-8859-1 code point`
+
+这表示浏览器尝试把中文等 Unicode 字符直接写入 HTTP Header。AlphaLens 的研究问题应放在 UTF-8 JSON body；`Idempotency-Key` 必须使用 `research-v1-<sha256>` ASCII 摘要。`tests/idempotency.test.ts` 对中文问题、确定性和冲突隔离做回归验证。

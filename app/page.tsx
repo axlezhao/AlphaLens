@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import { researchIdempotencyKey } from "../lib/research/idempotency";
 
 type Ticker = "NVDA" | "MSFT" | "AMZN";
 type View = "desk" | "thesis" | "scenario" | "evidence";
@@ -85,7 +86,9 @@ export default function Home() {
     try {
       const selectedTicker = normalized in stocks ? normalized : ticker;
       const question = query.trim().length >= 8 ? query.trim() : `核验 ${selectedTicker} 的核心投资论点、估值假设与未来催化剂`;
-      const response = await fetch("/api/v1/research", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": `${selectedTicker}-${new Date().toISOString().slice(0, 10)}-${question}` }, body: JSON.stringify({ ticker: selectedTicker, question, asOf: new Date().toISOString() }) });
+      const asOf = new Date().toISOString();
+      const idempotencyKey = await researchIdempotencyKey({ ticker: selectedTicker, question, asOfDate: asOf.slice(0, 10) });
+      const response = await fetch("/api/v1/research", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": idempotencyKey }, body: JSON.stringify({ ticker: selectedTicker, question, asOf }) });
       const payload = await response.json() as { data?: { id: string; status: string }; error?: { message: string } };
       if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? "研究任务创建失败");
       setToast(`研究任务已进入队列 · ${payload.data.id.slice(-8)}`);

@@ -1,20 +1,107 @@
 # 【金融】AlphaLens
 
-基于腾讯 WorkBuddy 的美股投资论点与辅助决策系统。它不是荐股机器人，而是一套证据驱动的研究工作台：将 SEC 文件、公司 IR、行情、市场预期和新闻信号组织成可追溯、可证伪、可持续更新的投资论点。
+> 先看证据，再做判断。
 
-## 比赛演示
+AlphaLens 是一个基于腾讯 WorkBuddy 思路构建的美股投资研究与辅助决策系统。它不尝试预测明天涨跌，也不直接替用户荐股；它把 SEC 文件、公司 IR、财务数据、市场预期、行业信号和用户观点整理成一条可追溯、可证伪、可持续更新的投资研究链路。
 
-1. 在首页输入 `NVDA` 或研究问题并发起深度研究。
-2. 展示 Agent 的检索、核验、KPI 提取、估值与反方审查步骤。
-3. 在“投资论点”查看支持/反对证据与证伪条件。
-4. 在“情景实验室”调整增长和估值倍数，实时查看目标价格。
-5. 在“证据库”展示结论到原始来源的溯源关系。
+[在线体验 AlphaLens](https://alphalens-investment-os.tracyaxle.chatgpt.site)
 
-演示数据固定且明确标注截至时间，确保现场稳定；生产数据通过 adapter 层接入，不与界面耦合。
+![AlphaLens](public/og.png)
 
-## 快速启动
+## 为什么做 AlphaLens
 
-需要 Node.js 22+。
+个人投资者真正缺少的通常不是更多资讯，而是将资讯转化为决策所需的结构：
+
+- 重要结论来自哪里，数据截至什么时候；
+- 哪些是事实、市场预期、模型推断或个人观点；
+- 多头逻辑和空头逻辑分别由什么证据支持；
+- 当前价格已经隐含了怎样的增长和利润率；
+- 哪些指标出现时，原投资论点应被判定为错误；
+- 财报或重大事件后，应该怎样更新论点并复盘。
+
+AlphaLens 因此被设计成“投资论点操作系统”，而不是资讯聚合器或 AI 荐股机器人。
+
+## 当前 Demo
+
+目前版本提供一条可完整演示的研究闭环：
+
+1. 输入股票代码或研究问题；
+2. 模拟执行来源检索、证据核验、KPI 提取、情景估值和反方审查；
+3. 生成结构化投资论点；
+4. 查看支持证据、反对证据和证伪条件；
+5. 调整收入增长和估值倍数，观察 Bull/Base/Bear 结果；
+6. 在证据库中区分事实、预期和风险；
+7. 跟踪后续财报与催化剂。
+
+演示标的包括 NVDA、MSFT 和 AMZN。线上版本使用固定演示数据，保证比赛现场稳定和结果可复现；真实数据源通过独立 Provider/Adapter 层接入。
+
+## 核心设计原则
+
+- **证据优先**：所有重要结论都应关联来源、发布时间和数据截至时间。
+- **事实与观点分离**：严格区分 `FACT`、`EXPECTATION`、`INFERENCE`、`USER_VIEW` 和 `UNVERIFIED`。
+- **强制反方审查**：系统必须主动寻找与用户原观点相反的证据。
+- **论点必须可证伪**：用具体 KPI、阈值和连续期间描述何时判错。
+- **估值展示假设**：目标价格只是收入、利润率和估值倍数等假设的结果。
+- **不自动交易**：系统仅辅助研究，不调用券商下单接口。
+- **演示与生产分层**：演示数据保证稳定，生产数据通过统一契约替换。
+
+## 系统结构
+
+```text
+WorkBuddy / Web UI
+        │
+        ▼
+Research Orchestrator
+        │
+        ├── SEC / Company IR
+        ├── Market Data / Consensus
+        ├── News / Events / FRED
+        └── User Research Context
+        │
+        ▼
+Normalization & Evidence Graph
+        │
+        ├── Thesis Engine
+        ├── Scenario & Valuation Engine
+        ├── Risk Challenger
+        └── Catalyst Monitor
+        │
+        ▼
+Decision Card / Watchlist / Review Log
+```
+
+详细设计见：
+
+- [架构链路、Workflow 与思维逻辑](docs/ARCHITECTURE_AND_WORKFLOW.md)
+- [当前能力、待建设能力与未来路线图](docs/CAPABILITIES_AND_ROADMAP.md)
+
+## 技术栈
+
+- Next.js / React / TypeScript
+- Vinext + Vite
+- Cloudflare Workers-compatible runtime
+- 可替换 Research Provider 接口
+- WorkBuddy Skill 包：`workbuddy-skill/`
+- Sites 私有部署
+
+## 项目目录
+
+```text
+.
+├── app/                        # Web UI 与 API Routes
+│   ├── api/health/             # 健康检查
+│   └── api/v1/research/        # 研究任务 API
+├── lib/research/               # 领域契约与 Provider Adapter
+├── docs/                       # 架构、Workflow 与路线图
+├── workbuddy-skill/            # 可导入 WorkBuddy 的 Skill 包
+├── tests/                      # 服务端渲染验证
+├── public/                     # 品牌与分享资源
+└── .openai/hosting.json        # Sites 部署配置
+```
+
+## 本地运行
+
+需要 Node.js 22+ 和 pnpm 11+。
 
 ```bash
 pnpm install
@@ -22,44 +109,31 @@ cp .env.example .env.local
 pnpm dev
 ```
 
-验证：
+访问 `http://localhost:3000`。
+
+## 验证
 
 ```bash
-pnpm build
+pnpm run lint
 pnpm test
 ```
 
-## 系统边界
-
-```text
-WorkBuddy / Web UI
-        ↓
-Research Orchestrator
-        ↓
-Source adapters ─ SEC / IR / Market data / News / FRED
-        ↓
-Normalization ─ Evidence graph ─ Thesis engine
-        ↓
-Scenario model ─ Risk challenger ─ Catalyst monitor
-        ↓
-Decision card / Tracker / Review log
-```
-
-## 工业化设计
-
-- 数据与 UI 分层：`lib/research/contracts.ts` 是稳定领域契约，provider 可替换。
-- 可观测性：所有研究任务带 `requestId`、`traceId`、`asOf` 和状态。
-- 证据治理：区分事实、预期、推断和用户观点，保留来源与时间戳。
-- 安全：服务端密钥、最小连接权限、请求校验、禁止自动交易。
-- 降级策略：实时源不可用时回退到最近快照，并显著标注数据陈旧性。
-- 可测试性：演示模式确定性输出；生产 adapter 使用契约测试和来源快照测试。
+`pnpm test` 会先执行正式构建，再检查服务端渲染结果和关键产品文案。
 
 ## API
 
-- `GET /api/health`：健康状态与运行模式。
-- `POST /api/v1/research`：创建研究任务，返回 `202` 和可追踪 job。
+### 健康检查
 
-请求示例：
+```http
+GET /api/health
+```
+
+### 创建研究任务
+
+```http
+POST /api/v1/research
+Content-Type: application/json
+```
 
 ```json
 {
@@ -69,16 +143,32 @@ Decision card / Tracker / Review log
 }
 ```
 
-## WorkBuddy
+当前接口返回可追踪的 Demo Job，包含 `requestId`、`traceId`、`asOf` 和任务状态。生产环境可将 `DemoResearchProvider` 替换为队列或工作流服务。
 
-`workbuddy-skill/` 是可导入的 AlphaLens Skill 包，定义来源优先级、证据类型、八步研究工作流、输出目录和安全约束。生产部署建议通过 MCP 将 SEC/IR、市场数据、新闻与持久化服务连接到 WorkBuddy。
+## WorkBuddy Skill
 
-## 上线前清单
+`workbuddy-skill/` 包含：
 
-- 接入有授权的实时/延时行情和一致预期数据；
-- 为 SEC、IR 和新闻源实现速率限制、缓存、重试和熔断；
-- 增加身份认证、租户隔离、审计日志和数据保留策略；
-- 对估值模型做金样测试，对财务口径做人工抽检；
-- 完成适用地区的投资研究免责声明与数据许可证审查。
+- `skill.yml`：技能元数据、权限和产物声明；
+- `SKILL.md`：八步投研工作流、来源优先级、证据分类与安全约束；
+- `README.md`：导入和使用说明。
 
-本项目仅用于技术研究与学习，不构成投资建议或交易要约。
+示例请求：
+
+> 研究 NVDA，判断 AI 数据中心增长是否已被充分计价，生成投资论点并加入观察池。
+
+## 数据与安全边界
+
+- API 密钥只通过服务端环境变量或 WorkBuddy/MCP 凭据注入管理；
+- 重要财务数字保留期间、单位、币种和来源；
+- 实时数据不可用时必须标明数据陈旧性，不用旧值冒充当前值；
+- 第三方行情、估值和新闻数据正式商用前需获得相应授权；
+- 当前系统不读取无关私人文件、不执行交易、不承诺投资收益。
+
+## 项目状态
+
+当前属于“比赛可演示、生产架构已预留”的工业级 MVP，而不是已经完成金融数据授权、合规审查和高可用建设的正式商业产品。详细缺口和里程碑见 [能力与路线图](docs/CAPABILITIES_AND_ROADMAP.md)。
+
+## Disclaimer
+
+本项目仅用于技术研究与学习，不构成投资建议、证券推荐、收益承诺或交易要约。投资者应独立判断并自行承担风险。

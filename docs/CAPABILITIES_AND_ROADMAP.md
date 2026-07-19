@@ -4,9 +4,9 @@
 
 AlphaLens 当前定位为：
 
-> 比赛可完整演示、产品逻辑闭环、生产架构预留，但尚未完成金融数据授权、用户体系、持久化和高可用建设的工业级 MVP。
+> 比赛可完整演示、核心后端可运行、具备数据治理和质量门禁的受控 Beta。
 
-“工业级 MVP”表示系统已经考虑领域契约、来源治理、安全边界、错误处理和可扩展性；不表示它已经具备正式商业金融产品所需的全部数据许可、合规和运维能力。
+P0 工程能力已落地；正式商用仍取决于数据许可、法律审查、全局限流、删除作业 SLA 与高可用演练。
 
 ## 2. 现在能做什么
 
@@ -16,7 +16,7 @@ AlphaLens 当前定位为：
 |---|---|---|
 | 今日研究台 | 已完成 | 展示研究完备度、组合观察、风险温度和研究时间 |
 | 美股观察池 | 已完成 | 支持 NVDA、MSFT、AMZN 演示标的切换 |
-| 深度研究任务 | Demo 完成 | 模拟意图识别、来源核验、KPI 提取、估值和反方审查 |
+| 深度研究任务 | Beta 完成 | D1 异步队列执行 SEC、IR、行情和一致预期检索 |
 | 投资论点卡 | 已完成 | 展示核心分歧、确信度、支持和反对证据 |
 | 证伪条件 | 已完成 | 用 KPI 和阈值表达论点失效条件 |
 | 情景估值 | 已完成 | 支持 Bear/Base/Bull 和实时参数调整 |
@@ -30,10 +30,11 @@ AlphaLens 当前定位为：
 
 | 能力 | 当前状态 | 说明 |
 |---|---|---|
-| TypeScript 领域契约 | 已完成 | 定义 Source、Evidence、Thesis 和 ResearchJob |
-| Provider 抽象 | 已完成 | Demo Provider 可替换为真实研究工作流 |
-| 研究任务 API | 已完成 | 输入校验、任务 ID、trace ID、as-of 和标准错误结构 |
-| 健康检查 | 已完成 | 返回服务状态、版本和运行模式 |
+| D1 领域模型 | 已完成 | 18 张表，覆盖租户、研究、版本、队列、审计和质量反馈 |
+| 弹性 Provider | 已完成 | SEC、同域 IR、授权 Alpha Vantage；缓存/重试/熔断/stale |
+| 异步研究 API | 已完成 | 幂等、租约、轮询、SSE、取消、超时、重试和恢复 |
+| 身份与权限 | 已完成 | Sites SIWC、Workspace RBAC、服务端租户过滤 |
+| 健康检查 | 已完成 | 服务配置与逐 Provider 运行状态 |
 | 环境变量模板 | 已完成 | 密钥不进入源码 |
 | WorkBuddy Skill | 已完成 | 包含 Manifest、研究流程和安全约束 |
 | 正式构建 | 已完成 | Cloudflare Workers-compatible 输出 |
@@ -45,24 +46,25 @@ AlphaLens 当前定位为：
 
 ```text
 GET  /api/health
-POST /api/v1/research
+POST   /api/v1/research
+GET    /api/v1/research/:jobId
+DELETE /api/v1/research/:jobId
+GET    /api/v1/research/:jobId/events
+GET    /api/v1/providers/health
+POST   /api/v1/account/delete
 ```
 
-`POST /api/v1/research` 当前创建确定性的演示任务，不会调用真实金融数据或执行证券交易。
+`POST /api/v1/research` 创建异步 Beta 任务。行情与一致预期仅在显式确认授权后开启，任何接口都不会执行证券交易。
 
 ## 3. 现在还不能做什么
 
 以下能力尚未完成，不应在比赛或产品介绍中误称为已具备：
 
-- 真实实时或延时行情接入；
-- SEC 文件自动下载、解析和增量更新；
-- 财报电话会、公司演示和新闻的实时检索；
-- 市场一致预期和盈利修正数据；
-- 用户注册、登录、权限和多租户隔离；
-- 观察池、论点、证据和复盘的服务端持久化；
-- 后台任务队列、定时刷新和信号推送；
-- 可审计的真实模型调用记录；
-- 完整的财务口径标准化和模型 Tie-out；
+- 未授权情况下的实时/延时行情和一致预期；
+- 依赖 JavaScript 且没有官方 Feed 的复杂 IR 网站；
+- 财报电话会商业版权内容和实时新闻；
+- 外部 LLM 的正式调用（字段与追踪表已就绪）；
+- 全量行业口径标准化和自动修复式 Tie-out；
 - 投资组合仓位、因子和相关性风险分析；
 - 自动化回测；
 - 券商连接或自动交易；
@@ -71,47 +73,47 @@ POST /api/v1/research
 
 ## 4. 上线前必须做什么
 
-### P0：从 Demo 变成可用 Beta
+### P0：从 Demo 变成可用 Beta（已实现）
 
 #### 4.1 数据接入
 
-- 接入 SEC EDGAR，并设置合规 User-Agent、速率限制和缓存；
-- 接入公司 IR 文档和事件日历；
-- 选择一个有明确授权边界的行情 Provider；
-- 明确市场一致预期数据来源；
-- 为每类来源实现健康检查、重试、熔断和陈旧性标记。
+- [x] 接入 SEC EDGAR，并设置合规 User-Agent、速率限制和缓存；
+- [x] 接入公司 IR RSS/Atom 和事件项；
+- [x] 选择 Alpha Vantage BYO 授权 Provider；
+- [x] 明确 Alpha Vantage `EARNINGS_ESTIMATES`；
+- [x] 为每类来源实现健康状态、重试、熔断和陈旧性标记。
 
 #### 4.2 持久化
 
-- 建立 Security、Source、Evidence、Thesis、Catalyst、ResearchJob 和 Review 数据表；
-- 使用稳定 ID，支持论点和证据版本化；
-- 保存研究快照和 `as_of`；
-- 增加幂等键，避免重复研究任务和重复证据。
+- [x] 建立 Security、Source、Evidence、Thesis、Catalyst、ResearchJob 和 Review 数据表；
+- [x] 使用稳定 ID，支持论点和证据版本化；
+- [x] 保存研究快照和 `as_of`；
+- [x] 增加幂等键，避免重复研究任务和重复证据。
 
 #### 4.3 身份与权限
 
-- 用户登录；
-- 用户数据隔离；
-- Workspace 或 Portfolio 权限；
-- 最小权限连接器；
-- 审计日志和数据删除机制。
+- [x] Sites Sign in with ChatGPT；
+- [x] Workspace 级用户数据隔离；
+- [x] Workspace 角色与 Portfolio 数据边界；
+- [x] 固定 SEC 域、批准 IR 同域、服务端行情连接器；
+- [x] 审计日志和数据删除请求机制。
 
 #### 4.4 工作流执行
 
-- 将同步 Demo Provider 替换为异步任务队列；
-- 支持任务状态轮询或流式事件；
-- 实现超时、重试、取消和失败恢复；
-- 保存模型版本、Prompt 版本和调用追踪。
+- [x] 将同步 Demo Provider 替换为 D1 租约任务队列；
+- [x] 支持任务状态轮询和 SSE 事件；
+- [x] 实现超时、重试、取消和失败恢复；
+- [x] 保存模型版本、Prompt 版本、trace ID 和调用表。
 
 #### 4.5 质量保障
 
-- 财务数字来源 Tie-out；
-- 估值模型金样测试；
-- Provider 契约测试；
-- 来源冲突测试；
-- 时间穿越和数据泄漏测试；
-- 典型公司和行业回归样本集；
-- 人工抽检和置信度校准。
+- [x] 财务数字来源 Tie-out 测试框架；
+- [x] 估值模型金样测试；
+- [x] Provider 契约测试；
+- [x] 来源冲突测试；
+- [x] 时间穿越和数据泄漏测试；
+- [x] 典型公司和行业回归样本集；
+- [x] Review 表、Brier/ECE 置信度校准函数和人工抽检流程。
 
 ## 5. Beta 之后做什么
 
@@ -245,4 +247,3 @@ AlphaLens 暂不追求：
 - 相比手工研究节省的时间。
 
 不建议把短期收益率作为唯一产品指标，因为这会鼓励系统输出过度自信、不可解释的方向性结论。
-

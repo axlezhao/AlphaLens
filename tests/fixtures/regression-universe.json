@@ -1,0 +1,7 @@
+[
+  { "ticker": "AAPL", "sector": "Technology", "requiredFacts": ["Revenues", "NetIncomeLoss", "OperatingCashFlow"] },
+  { "ticker": "JPM", "sector": "Banks", "requiredFacts": ["Revenues", "NetIncomeLoss", "StockholdersEquity"] },
+  { "ticker": "XOM", "sector": "Energy", "requiredFacts": ["Revenues", "NetIncomeLoss", "PaymentsToAcquirePropertyPlantAndEquipment"] },
+  { "ticker": "PLD", "sector": "REITs", "requiredFacts": ["Revenues", "NetIncomeLoss", "Assets"] },
+  { "ticker": "PFE", "sector": "Biopharma", "requiredFacts": ["Revenues", "ResearchAndDevelopmentExpense", "NetIncomeLoss"] }
+]

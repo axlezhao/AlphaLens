@@ -76,18 +76,40 @@ export default function Home() {
     setMultiple(stocks[next].multiple);
   }
 
-  function runResearch(event?: FormEvent) {
+  async function runResearch(event?: FormEvent) {
     event?.preventDefault();
     const normalized = query.trim().toUpperCase();
     if (normalized in stocks) chooseTicker(normalized as Ticker);
     setResearching(true);
     setToast("");
-    window.setTimeout(() => {
-      setResearching(false);
+    try {
+      const selectedTicker = normalized in stocks ? normalized : ticker;
+      const question = query.trim().length >= 8 ? query.trim() : `核验 ${selectedTicker} 的核心投资论点、估值假设与未来催化剂`;
+      const response = await fetch("/api/v1/research", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": `${selectedTicker}-${new Date().toISOString().slice(0, 10)}-${question}` }, body: JSON.stringify({ ticker: selectedTicker, question, asOf: new Date().toISOString() }) });
+      const payload = await response.json() as { data?: { id: string; status: string }; error?: { message: string } };
+      if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? "研究任务创建失败");
+      setToast(`研究任务已进入队列 · ${payload.data.id.slice(-8)}`);
+      const final = await pollJob(payload.data.id);
       setView("thesis");
-      setToast("研究任务完成：已核验 24 个来源，更新 6 条关键证据");
-      window.setTimeout(() => setToast(""), 4200);
-    }, 1600);
+      setToast(final === "succeeded" ? "研究完成：证据快照已保存" : final === "queued" || final === "running" ? "研究正在后台执行，可稍后查看任务状态" : `研究任务状态：${final}`);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "研究服务暂时不可用");
+    } finally {
+      setResearching(false);
+      window.setTimeout(() => setToast(""), 5200);
+    }
+  }
+
+  async function pollJob(jobId: string) {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      const response = await fetch(`/api/v1/research/${jobId}`, { cache: "no-store" });
+      if (!response.ok) break;
+      const payload = await response.json() as { data?: { status?: string } };
+      const status = payload.data?.status ?? "queued";
+      if (["succeeded", "failed", "cancelled"].includes(status)) return status;
+    }
+    return "queued";
   }
 
   return (
@@ -127,7 +149,7 @@ export default function Home() {
             {researching ? <><i className="spinner" />研究进行中</> : <><span>✦</span> 发起深度研究</>}
           </button>
           <button className="icon-button" aria-label="通知">◌<i>3</i></button>
-          <div className="avatar">TL</div>
+          <a className="avatar" href="/signin-with-chatgpt?return_to=%2F" title="使用 ChatGPT 登录">登录</a>
         </header>
 
         <div className="content">

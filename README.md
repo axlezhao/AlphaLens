@@ -21,19 +21,19 @@ AlphaLens 是一个基于腾讯 WorkBuddy 思路构建的美股投资研究与�
 
 AlphaLens 因此被设计成“投资论点操作系统”，而不是资讯聚合器或 AI 荐股机器人。
 
-## 当前 Demo
+## 当前 Beta
 
-目前版本提供一条可完整演示的研究闭环：
+0.2 Beta 已把原有同步 Demo 升级为可恢复、可审计的研究后端，同时保留稳定的比赛展示界面：
 
 1. 输入股票代码或研究问题；
-2. 模拟执行来源检索、证据核验、KPI 提取、情景估值和反方审查；
+2. 异步检索 SEC、获准的公司 IR、行情与一致预期，并执行证据核验；
 3. 生成结构化投资论点；
 4. 查看支持证据、反对证据和证伪条件；
 5. 调整收入增长和估值倍数，观察 Bull/Base/Bear 结果；
 6. 在证据库中区分事实、预期和风险；
 7. 跟踪后续财报与催化剂。
 
-演示标的包括 NVDA、MSFT 和 AMZN。线上版本使用固定演示数据，保证比赛现场稳定和结果可复现；真实数据源通过独立 Provider/Adapter 层接入。
+展示标的包括 NVDA、MSFT 和 AMZN；展示层的示例卡片用于比赛现场稳定演示，点击“发起深度研究”则进入真实的多租户异步任务 API。没有合法行情授权时系统明确降级，不会用固定示例冒充实时数据。
 
 ## 核心设计原则
 
@@ -74,13 +74,16 @@ Decision Card / Watchlist / Review Log
 
 - [架构链路、Workflow 与思维逻辑](docs/ARCHITECTURE_AND_WORKFLOW.md)
 - [当前能力、待建设能力与未来路线图](docs/CAPABILITIES_AND_ROADMAP.md)
+- [Beta 运行、数据治理与上线手册](docs/BETA_OPERATIONS_AND_DATA_GOVERNANCE.md)
 
 ## 技术栈
 
 - Next.js / React / TypeScript
 - Vinext + Vite
 - Cloudflare Workers-compatible runtime
-- 可替换 Research Provider 接口
+- D1 多租户持久化与可恢复任务队列
+- SEC / IR / Alpha Vantage 弹性 Provider
+- Sites Sign in with ChatGPT 与 Workspace RBAC
 - WorkBuddy Skill 包：`workbuddy-skill/`
 - Sites 私有部署
 
@@ -91,7 +94,9 @@ Decision Card / Watchlist / Review Log
 ├── app/                        # Web UI 与 API Routes
 │   ├── api/health/             # 健康检查
 │   └── api/v1/research/        # 研究任务 API
-├── lib/research/               # 领域契约与 Provider Adapter
+├── db/ + drizzle/              # 18 张 D1 表与版本化迁移
+├── lib/providers/              # SEC、IR、行情/预期与弹性策略
+├── lib/research/               # 队列、执行器、证据版本与研究快照
 ├── docs/                       # 架构、Workflow 与路线图
 ├── workbuddy-skill/            # 可导入 WorkBuddy 的 Skill 包
 ├── tests/                      # 服务端渲染验证
@@ -118,7 +123,7 @@ pnpm run lint
 pnpm test
 ```
 
-`pnpm test` 会先执行正式构建，再检查服务端渲染结果和关键产品文案。
+`pnpm test` 会执行财务/估值/时间穿越/Provider 契约测试、正式构建和服务端渲染检查。
 
 ## API
 
@@ -143,7 +148,7 @@ Content-Type: application/json
 }
 ```
 
-当前接口返回可追踪的 Demo Job，包含 `requestId`、`traceId`、`asOf` 和任务状态。生产环境可将 `DemoResearchProvider` 替换为队列或工作流服务。
+接口返回 `202` 和可追踪的 Beta Job。客户端可轮询 `/api/v1/research/:jobId`，或从 `/events` 读取 SSE；任务支持幂等、重试、超时、取消和失败恢复。完整 API 与 Worker 配置见 [Beta 手册](docs/BETA_OPERATIONS_AND_DATA_GOVERNANCE.md)。
 
 ## WorkBuddy Skill
 
@@ -167,7 +172,7 @@ Content-Type: application/json
 
 ## 项目状态
 
-当前属于“比赛可演示、生产架构已预留”的工业级 MVP，而不是已经完成金融数据授权、合规审查和高可用建设的正式商业产品。详细缺口和里程碑见 [能力与路线图](docs/CAPABILITIES_AND_ROADMAP.md)。
+当前属于“比赛可演示、可供受控用户验证”的 Beta：核心持久化、身份隔离、异步执行和质量门禁已落地，但仍不是已经完成所有数据商业授权、法律审查和高可用演练的正式金融产品。详细边界见 [Beta 手册](docs/BETA_OPERATIONS_AND_DATA_GOVERNANCE.md)。
 
 ## Disclaimer
 

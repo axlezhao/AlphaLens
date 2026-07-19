@@ -305,6 +305,28 @@ Agent 先保存权威事实，再做归因和推断。推断必须显式标记�
 
 系统输出应该是：继续研究、等待验证、加入观察池、论点弱化或论点失效。仓位和交易决策需要结合用户自身约束，并且不由当前 Demo 自动执行。
 
+### 5.8 P2 组合辅助决策链路
+
+```mermaid
+flowchart LR
+  P["用户持仓快照"] --> N["标准化市值 / 方向 / as_of"]
+  W["P1 观察池"] --> U["持仓 + 观察统一视图"]
+  N --> U
+  U --> X["行业 / 因子 / 币种 / 事件暴露"]
+  U --> C["Top-5 / HHI / 相关性 / 流动性"]
+  U --> S["多维压力情景"]
+  T["最新论点与证伪条件"] --> R["风险预算联动"]
+  X & C & S --> R
+  R --> A["可审计行动条件"]
+  A --> H["人工确认 / 复核"]
+```
+
+组合层的思维顺序是：先确认 NAV、持仓方向、价格时间与数据状态；再区分 intended alpha 与 unintended exposure；随后检查集中度、相关性、流动性和事件簇；最后把压力损失与最新论点/证伪条件合并。情景损失预算是提前约定的复核阈值，`absoluteLossCapBps` 是更高优先级的硬性告警，两者不能混称。
+
+压力引擎对 Long/Short 使用带符号市值，支持 ticker、sector、factor、currency 和 event 冲击；Factor 冲击按用户提供的敏感度缩放。缺失 NAV 时以绝对持仓市值合计作为临时分母并显示警告；缺失 ADV、价格或相关性样本时不填造数字。`risk.refresh` 使用输入哈希保存不可变风险快照和幂等行动条件。
+
+行动条件只包含触发器、谓词、严重度、解释和确认状态；数据模型与 API 均不存在券商订单、交易数量、路由或执行字段。
+
 ## 6. 错误处理与降级
 
 | 场景 | 系统行为 |
@@ -348,8 +370,10 @@ Agent 先保存权威事实，再做归因和推断。推断必须显式标记�
 |---|---|
 | Web 工作台 | `app/page.tsx` |
 | P1 个人研究工作台 | `app/workbench.tsx` |
+| P2 组合辅助决策 | `app/portfolio.tsx` |
 | 研究任务 API | `app/api/v1/research/route.ts` |
 | P1 查询与命令 API | `app/api/v1/workbench/route.ts` |
+| P2 组合查询与命令 API | `app/api/v1/portfolio/route.ts` |
 | 隐含预期 API | `app/api/v1/implied-expectations/route.ts` |
 | 报告导出 API | `app/api/v1/reports/[ticker]/route.ts` |
 | 催化剂/通知 Worker | `app/api/internal/workbench-worker/route.ts` |
@@ -357,9 +381,12 @@ Agent 先保存权威事实，再做归因和推断。推断必须显式标记�
 | 领域契约 | `lib/research/contracts.ts` |
 | Demo Provider | `lib/research/demo-adapter.ts` |
 | P1 领域服务 | `lib/workbench/service.ts` |
+| P2 组合服务 | `lib/portfolio/service.ts` |
+| 暴露、相关性、压力与行动条件 | `lib/portfolio/analytics.ts` |
 | 提醒连接器与可靠 Outbox | `lib/workbench/connectors.ts` |
 | 隐含预期和偏差统计 | `lib/workbench/analytics.ts` |
 | Markdown/PDF/XLSX 生成 | `lib/workbench/exports.ts` |
 | WorkBuddy Workflow | `workbuddy-skill/SKILL.md` |
 | Skill Manifest | `workbuddy-skill/skill.yml` |
 | 服务端渲染测试 | `tests/rendered-html.test.mjs` |
+| 组合风险回归测试 | `tests/portfolio.test.ts` |

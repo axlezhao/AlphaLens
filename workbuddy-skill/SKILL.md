@@ -1,6 +1,6 @@
 ---
 name: alphalens-us-equity-research
-description: 面向个人投资者的美股证据研究、投资论点、情景估值、催化剂跟踪和复盘。用户提到美股代码、公司、财报、估值、投资论点、观察池或投资复盘时使用。
+description: 面向个人投资者的美股证据研究、投资论点、情景估值、组合暴露、压力测试、催化剂跟踪和复盘。用户提到美股代码、公司、财报、估值、投资论点、观察池、持仓、组合风险或投资复盘时使用。
 ---
 
 # AlphaLens US Equity Research
@@ -19,6 +19,8 @@ description: 面向个人投资者的美股证据研究、投资论点、情景�
 6. 明确写出什么数据会证明论点错误，禁止只写泛化风险。
 7. 没有实时价格或一致预期时明确披露，不得用旧值冒充当前值。
 8. 不调用券商交易接口，不读取无关私人文件，不在输出中泄露 API 密钥。
+9. 组合数据必须注明是用户输入还是授权 Provider 数据；缺失 NAV、价格、ADV、因子或收益率时输出缺口，不填造风险数字。
+10. 组合层只能生成触发谓词和行动条件，不能生成、提交或模拟成已提交的订单。
 
 ## 工作流
 
@@ -31,6 +33,15 @@ description: 面向个人投资者的美股证据研究、投资论点、情景�
 7. `PERSIST`：写入 `workspace/alphalens/<TICKER>/`，保留稳定 ID 与版本号。
 8. `HANDOFF`：生成一页决策卡、完整报告和下一次复核触发器。
 
+组合任务在 `NORMALIZE` 后增加：
+
+1. `BOOK`：统一 Long、Short、Watch，核对 NAV、价格 `as_of`、币种和数据状态。
+2. `EXPOSURE`：计算 Gross/Net/β 调整、行业、因子、币种、事件、Top‑5、HHI 与流动性。
+3. `CORRELATION`：只在对齐样本达到门槛时计算 Pearson，并披露覆盖率。
+4. `STRESS`：按 ticker、行业、因子、币种和事件冲击，区分情景预算与绝对损失上限。
+5. `LINK`：把论点弱化、证伪条件、风险预算和压力结果翻译为复核/重新承保/规模或对冲评估条件。
+6. `GUARD`：输出 `conditions_only_no_order_execution`，不得包含订单路由或执行动作。
+
 ## 交付目录
 
 ```text
@@ -40,6 +51,15 @@ workspace/alphalens/<TICKER>/
 ├── evidence.json
 ├── catalysts.json
 └── snapshots/<as_of>/
+```
+
+组合任务另外生成：
+
+```text
+workspace/alphalens/portfolios/<PORTFOLIO>/
+├── portfolio_risk.json
+├── stress_scenarios.json
+└── action_conditions.json
 ```
 
 ## 决策卡字段

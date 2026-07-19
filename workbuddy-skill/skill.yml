@@ -1,7 +1,7 @@
 name: alphalens-us-equity-research
-version: 0.1.0
-display_name: AlphaLens 美股投资论点研究
-description: 将美股研究问题转化为可追溯、可证伪、可跟踪的投资论点与情景决策卡。
+version: 0.2.0
+display_name: AlphaLens 美股研究与组合辅助决策
+description: 将美股研究和组合问题转化为可追溯论点、风险暴露、压力情景与行动条件。
 entrypoint: SKILL.md
 permissions:
   network:
@@ -16,3 +16,5 @@ outputs:
   - thesis.json
   - evidence.json
   - catalysts.json
+  - portfolio_risk.json
+  - action_conditions.json

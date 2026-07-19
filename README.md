@@ -23,7 +23,7 @@ AlphaLens 因此被设计成“投资论点操作系统”，而不是资讯聚�
 
 ## 当前 Beta
 
-0.3 Beta 已在可恢复、可审计的研究后端之上完成 P1 个人投资研究工作台，同时保留稳定的比赛展示界面：
+0.4 Beta 已在可恢复、可审计的研究后端之上完成 P0、P1 与 P2 组合层辅助决策，同时保留稳定的比赛展示界面：
 
 1. 输入股票代码或研究问题；
 2. 异步检索 SEC、获准的公司 IR、行情与一致预期，并执行证据核验；
@@ -34,6 +34,8 @@ AlphaLens 因此被设计成“投资论点操作系统”，而不是资讯聚�
 7. 跟踪后续财报与催化剂。
 
 “个人工作台”现已支持用户自定义观察池、论点版本时间线、可编辑证伪条件、财报前 Preview / 财报后 Deep Dive、官方 IR 催化剂刷新、邮件/企业微信/微信公众号连接器、同行比较、当前价格隐含预期反推、复盘与认知偏差统计，以及 Markdown、PDF、Excel 报告导出。
+
+“组合决策”现已支持持仓与观察池统一视图，行业/因子/币种/事件暴露，Gross/Net/β 调整暴露，Top‑5/HHI 集中度、基于用户导入日收益率的 Pearson 相关性、流动性退出天数、多维压力情景、组合催化剂，以及论点弱化/证伪/风险预算联动。系统只生成可确认、可审计的行动条件，没有券商连接器、订单对象或自动下单路径。
 
 其中，企业微信使用官方机器人 Webhook；邮件需要配置 Resend；个人微信提醒需要已获授权的微信公众号能力。未配置凭据的通道会显示为“需密钥/需官方账号”，不会伪造发送成功。
 
@@ -101,11 +103,14 @@ Decision Card / Watchlist / Review Log
 │   ├── api/health/             # 健康检查
 │   ├── api/v1/research/        # 研究任务 API
 │   ├── api/v1/workbench/       # P1 工作台查询与命令 API
-│   └── workbench.tsx           # 个人研究工作台界面
-├── db/ + drizzle/              # 30 张 D1 表与版本化迁移
+│   ├── api/v1/portfolio/       # P2 组合查询与命令 API
+│   ├── workbench.tsx           # 个人研究工作台界面
+│   └── portfolio.tsx           # 组合辅助决策界面
+├── db/ + drizzle/              # 38 张 D1 表与版本化迁移
 ├── lib/providers/              # SEC、IR、行情/预期与弹性策略
 ├── lib/research/               # 队列、执行器、证据版本与研究快照
 ├── lib/workbench/              # 隐含预期、连接器、导出与 P1 领域服务
+├── lib/portfolio/              # P2 暴露、相关性、压力测试和行动条件
 ├── docs/                       # 架构、Workflow 与路线图
 ├── workbuddy-skill/            # 可导入 WorkBuddy 的 Skill 包
 ├── tests/                      # 服务端渲染验证
@@ -170,6 +175,15 @@ GET  /api/v1/reports/NVDA?format=markdown|pdf|xlsx
 
 `POST /api/v1/workbench` 使用显式 `action` 执行观察池、论点/证伪条件版本、财报工作流、催化剂、提醒、同行组和复盘写入。所有操作都先经过登录、Workspace RBAC 与审计。
 
+### 组合层辅助决策
+
+```http
+GET  /api/v1/portfolio?portfolioId=...
+POST /api/v1/portfolio
+```
+
+组合写操作使用显式 `action`：`portfolio.create`、`position.save/remove`、`policy.save`、`returns.import`、`scenario.save/run`、`risk.refresh` 与 `condition.acknowledge`。风险输入保留 `as_of`、来源状态和稳定幂等键；输出固定为 `conditions_only_no_order_execution`。
+
 ## WorkBuddy Skill
 
 `workbuddy-skill/` 包含：
@@ -192,7 +206,7 @@ GET  /api/v1/reports/NVDA?format=markdown|pdf|xlsx
 
 ## 项目状态
 
-当前属于“比赛可演示、P0 + P1 可供受控用户验证”的 Beta：核心持久化、身份隔离、异步执行、个人研究工作台和质量门禁已落地，但仍不是已经完成所有数据商业授权、消息通道认证、法律审查和高可用演练的正式金融产品。详细边界见 [Beta 手册](docs/BETA_OPERATIONS_AND_DATA_GOVERNANCE.md)。
+当前属于“比赛可演示、P0 + P1 + P2 可供受控用户验证”的 Beta：核心持久化、身份隔离、异步执行、个人研究工作台、组合辅助决策和质量门禁已落地，但仍不是已经完成所有数据商业授权、消息通道认证、法律审查和高可用演练的正式金融产品。详细边界见 [Beta 手册](docs/BETA_OPERATIONS_AND_DATA_GOVERNANCE.md)。
 
 ## Disclaimer
 

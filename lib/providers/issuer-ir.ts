@@ -20,7 +20,7 @@ export async function issuerIrEvents(feedUrl: string, allowedBaseUrl: string): P
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const response = await fetch(feed, { headers: { "User-Agent": process.env.IR_USER_AGENT ?? "AlphaLens/0.3 research@example.com", Accept: "application/rss+xml, application/atom+xml, text/calendar, text/html" }, signal: AbortSignal.timeout(10_000) });
+      const response = await fetch(feed, { headers: { "User-Agent": process.env.IR_USER_AGENT ?? "AlphaLens/0.4 research@example.com", Accept: "application/rss+xml, application/atom+xml, text/calendar, text/html" }, signal: AbortSignal.timeout(10_000) });
       if (!response.ok) throw new Error(`issuer-ir HTTP ${response.status}`);
       const text = await response.text();
       const fetchedAt = new Date().toISOString();

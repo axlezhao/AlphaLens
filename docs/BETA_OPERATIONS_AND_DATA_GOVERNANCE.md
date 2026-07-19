@@ -23,6 +23,8 @@ flowchart LR
 
 P1 工作台复用相同租户与任务基础设施。财报 Preview / Deep Dive 创建 ResearchJob；催化剂订阅由 `workbench-worker` 按 `next_refresh_at` 拉取官方 IR；提醒先进入幂等 Outbox，再由邮件、企业微信或微信公众号 Adapter 投递。连接器目标使用 AES-GCM 加密保存，列表接口只返回脱敏提示。
 
+P2 组合层继续复用 Workspace RBAC 与审计。持仓、风险政策、收益率、相关性快照、情景版本/结果、风险快照和行动条件全部按 `workspace_id + portfolio_id` 隔离。组合分析是同步、确定性的纯计算，不调用外部交易系统；`risk.refresh` 按输入哈希去重快照并保存触发条件。
+
 ## 2. 数据来源与授权边界
 
 | 数据 | 实现 | Beta 边界 | 默认新鲜度 |
@@ -59,7 +61,7 @@ SEC 在单 Worker 内限制为每 125ms 一次（8 req/s，低于公开的 10 re
 
 ## 5. 数据模型与版本规则
 
-基础迁移位于 `drizzle/0000_pretty_squadron_sinister.sql`，P1 增量迁移位于 `drizzle/0001_yielding_domino.sql`，共 30 张表。除原有 Security、Source、Evidence、Thesis、Catalyst、ResearchJob、Review 等表外，P1 新增 Watchlist/Item、ThesisFalsifier、EarningsWorkflow、CatalystSubscription、NotificationChannel/Rule/Outbox、PeerGroup/Member、ReviewTemplate 和 InvestmentReview。
+基础迁移位于 `drizzle/0000_pretty_squadron_sinister.sql`，P1 增量迁移位于 `drizzle/0001_yielding_domino.sql`，P2 增量迁移位于 `drizzle/0002_opposite_gressill.sql`，共 38 张表。P2 新增 PortfolioPosition、PortfolioRiskPolicy、PortfolioReturnSeries、PortfolioCorrelationSnapshot、PortfolioScenario/Result、PortfolioRiskSnapshot 和 PortfolioActionCondition。
 
 - 稳定 ID：自然键经命名空间 SHA-256 生成，不依赖数据库自增值。
 - Evidence/Thesis：`logical_id + version` 唯一，新版本记录 `supersedes_id`。
@@ -71,14 +73,17 @@ SEC 在单 Worker 内限制为每 125ms 一次（8 req/s，低于公开的 10 re
 - EarningsWorkflow 使用 Workspace 范围幂等键关联 ResearchJob，避免重复创建同一财报研究。
 - NotificationOutbox 使用 `channel_id + event_key` 去重，并最多重试五次。
 - Peer 指标必须保存 `metrics_as_of`；缺少来源或时间的快照在 UI/导出中明确标记。
+- Position 保留 `price_as_of`、`data_status`、币种、ADV 与因子/事件输入；默认标记为 `user_input`，不得冒充实时行情。
+- Scenario 通过 `logical_id + version + supersedes_id` 保留版本；Result 和 RiskSnapshot 通过输入哈希幂等。
+- ActionCondition 只保存谓词、严重度、说明和人工确认状态；没有订单或执行字段。
 
 ## 6. 运维配置
 
 必需环境变量：
 
 ```bash
-SEC_USER_AGENT="AlphaLens/0.3 monitored@example.com"
-IR_USER_AGENT="AlphaLens/0.3 monitored@example.com"
+SEC_USER_AGENT="AlphaLens/0.4 monitored@example.com"
+IR_USER_AGENT="AlphaLens/0.4 monitored@example.com"
 WORKER_SHARED_SECRET="a-long-random-secret"
 CONNECTOR_ENCRYPTION_KEY="at-least-16-random-characters"
 ```
@@ -124,11 +129,13 @@ GET    /api/v1/workbench?ticker=NVDA
 POST   /api/v1/workbench
 POST   /api/v1/implied-expectations
 GET    /api/v1/reports/:ticker?format=markdown|pdf|xlsx
+GET    /api/v1/portfolio?portfolioId=...
+POST   /api/v1/portfolio
 ```
 
 ## 7. 质量门禁
 
-`tests/quality.test.ts` 覆盖财务数字双来源 Tie-out、来源冲突、DCF 金样、`as_of` 时间穿越和置信度校准；`tests/provider-contract.test.ts` 覆盖 Provider 契约、缓存和 stale fallback；`tests/workbench.test.ts` 覆盖两套隐含预期反推、偏差聚合以及 Markdown/PDF/XLSX 文件签名；`tests/fixtures/regression-universe.json` 包含科技、银行、能源、REIT 和生物制药样本。
+`tests/quality.test.ts` 覆盖财务数字双来源 Tie-out、来源冲突、DCF 金样、`as_of` 时间穿越和置信度校准；`tests/provider-contract.test.ts` 覆盖 Provider 契约、缓存和 stale fallback；`tests/workbench.test.ts` 覆盖两套隐含预期反推、偏差聚合以及 Markdown/PDF/XLSX 文件签名；`tests/portfolio.test.ts` 覆盖 Long/Short 符号、Gross/Net、相关性样本门槛、压力损失预算、论点证伪联动和“无订单字段”约束；`tests/fixtures/regression-universe.json` 包含科技、银行、能源、REIT 和生物制药样本。
 
 发布门禁：类型检查、单元测试、正式构建、渲染测试全部通过。真实数据上线还必须跑在线 Provider smoke test，并由人工抽检 SEC 原文、期间、单位、币种、拆股口径和一致预期时间戳。
 
@@ -143,6 +150,7 @@ GET    /api/v1/reports/:ticker?format=markdown|pdf|xlsx
 - 邮件、企业微信和微信公众号只有在配置真实凭据后才投递；当前部署若缺少配置会显示明确状态并保留失败 Outbox。
 - 官方 IR Feed 地址需要在 Security 记录中显式配置；缺失时催化剂刷新返回 `degraded`，不抓取未批准的聚合站。
 - 当前 PDF 使用 PDF 标准 CJK 字体映射以保持 Worker 端轻量生成；对归档级 PDF/A 或品牌字体有要求时应改为嵌入授权字体的渲染服务。
+- P2 尚未接券商账户、商业因子模型或授权组合数据；价格、因子、ADV 和收益率必须由用户或授权 Provider 提供。相关性是历史 Pearson 描述统计，不等于危机期相关性保证。
 - 本系统不下单，不构成投资建议。
 
 ## 9. 常见故障

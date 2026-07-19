@@ -395,3 +395,112 @@ export const investmentReviews = sqliteTable("investment_reviews", {
   asOf: text("as_of").notNull(),
   ...timestamps,
 }, (t) => [index("investment_reviews_workspace_user_idx").on(t.workspaceId, t.userId, t.createdAt)]);
+
+export const portfolioPositions = sqliteTable("portfolio_positions", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  portfolioId: text("portfolio_id").notNull().references(() => portfolios.id, { onDelete: "cascade" }),
+  securityId: text("security_id").notNull().references(() => securities.id, { onDelete: "cascade" }),
+  positionType: text("position_type", { enum: ["long", "short", "watch"] }).notNull(),
+  shares: real("shares").notNull().default(0),
+  averageCost: real("average_cost"),
+  currentPrice: real("current_price"),
+  priceAsOf: text("price_as_of"),
+  marketValue: real("market_value"),
+  currency: text("currency").notNull().default("USD"),
+  benchmarkWeight: real("benchmark_weight"),
+  beta: real("beta"),
+  dailyVolatility: real("daily_volatility"),
+  advUsd: real("adv_usd"),
+  sector: text("sector"),
+  industry: text("industry"),
+  factorExposuresJson: text("factor_exposures_json").notNull().default("{}"),
+  eventTagsJson: text("event_tags_json").notNull().default("[]"),
+  sourceId: text("source_id").references(() => sources.id),
+  dataStatus: text("data_status", { enum: ["current", "stale", "user_input", "missing"] }).notNull().default("user_input"),
+  ...timestamps,
+}, (t) => [uniqueIndex("portfolio_positions_security_uq").on(t.portfolioId, t.securityId, t.positionType), index("portfolio_positions_workspace_idx").on(t.workspaceId, t.portfolioId)]);
+
+export const portfolioRiskPolicies = sqliteTable("portfolio_risk_policies", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  portfolioId: text("portfolio_id").notNull().references(() => portfolios.id, { onDelete: "cascade" }),
+  nav: real("nav").notNull().default(0),
+  maxPositionWeight: real("max_position_weight").notNull().default(0.2),
+  maxSectorWeight: real("max_sector_weight").notNull().default(0.4),
+  maxFactorExposure: real("max_factor_exposure").notNull().default(0.5),
+  maxEventClusterWeight: real("max_event_cluster_weight").notNull().default(0.35),
+  scenarioLossBudgetBps: integer("scenario_loss_budget_bps").notNull().default(1000),
+  absoluteLossCapBps: integer("absolute_loss_cap_bps").notNull().default(2000),
+  correlationLookbackDays: integer("correlation_lookback_days").notNull().default(60),
+  exitParticipationRate: real("exit_participation_rate").notNull().default(0.1),
+  rulesJson: text("rules_json").notNull().default("{}"),
+  ...timestamps,
+}, (t) => [uniqueIndex("portfolio_risk_policies_portfolio_uq").on(t.portfolioId), index("portfolio_risk_policies_workspace_idx").on(t.workspaceId)]);
+
+export const portfolioReturnSeries = sqliteTable("portfolio_return_series", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  portfolioId: text("portfolio_id").notNull().references(() => portfolios.id, { onDelete: "cascade" }),
+  securityId: text("security_id").notNull().references(() => securities.id, { onDelete: "cascade" }),
+  tradingDate: text("trading_date").notNull(),
+  returnValue: real("return_value").notNull(),
+  sourceId: text("source_id").references(() => sources.id),
+  asOf: text("as_of").notNull(),
+  createdAt: text("created_at").notNull(),
+}, (t) => [uniqueIndex("portfolio_returns_security_date_uq").on(t.portfolioId, t.securityId, t.tradingDate), index("portfolio_returns_portfolio_date_idx").on(t.portfolioId, t.tradingDate)]);
+
+export const portfolioCorrelationSnapshots = sqliteTable("portfolio_correlation_snapshots", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  portfolioId: text("portfolio_id").notNull().references(() => portfolios.id, { onDelete: "cascade" }),
+  asOf: text("as_of").notNull(),
+  lookbackDays: integer("lookback_days").notNull(),
+  method: text("method").notNull().default("pearson"),
+  matrixJson: text("matrix_json").notNull(),
+  coverage: real("coverage").notNull(),
+  warningsJson: text("warnings_json").notNull().default("[]"),
+  inputHash: text("input_hash").notNull(),
+  createdAt: text("created_at").notNull(),
+}, (t) => [uniqueIndex("portfolio_correlation_input_uq").on(t.portfolioId, t.inputHash), index("portfolio_correlation_asof_idx").on(t.portfolioId, t.asOf)]);
+
+export const portfolioScenarios = sqliteTable("portfolio_scenarios", {
+  id: text("id").primaryKey(), logicalId: text("logical_id").notNull(), version: integer("version").notNull(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  portfolioId: text("portfolio_id").notNull().references(() => portfolios.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), description: text("description"), shocksJson: text("shocks_json").notNull(),
+  status: text("status", { enum: ["draft", "active", "retired"] }).notNull().default("active"),
+  supersedesId: text("supersedes_id"), asOf: text("as_of").notNull(), ...timestamps,
+}, (t) => [uniqueIndex("portfolio_scenarios_version_uq").on(t.logicalId, t.version), index("portfolio_scenarios_portfolio_idx").on(t.portfolioId, t.updatedAt)]);
+
+export const portfolioScenarioResults = sqliteTable("portfolio_scenario_results", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  portfolioId: text("portfolio_id").notNull().references(() => portfolios.id, { onDelete: "cascade" }),
+  scenarioId: text("scenario_id").notNull().references(() => portfolioScenarios.id, { onDelete: "cascade" }),
+  asOf: text("as_of").notNull(), inputHash: text("input_hash").notNull(), resultJson: text("result_json").notNull(), createdAt: text("created_at").notNull(),
+}, (t) => [uniqueIndex("portfolio_scenario_results_input_uq").on(t.portfolioId, t.scenarioId, t.inputHash), index("portfolio_scenario_results_asof_idx").on(t.portfolioId, t.asOf)]);
+
+export const portfolioRiskSnapshots = sqliteTable("portfolio_risk_snapshots", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  portfolioId: text("portfolio_id").notNull().references(() => portfolios.id, { onDelete: "cascade" }),
+  asOf: text("as_of").notNull(), inputHash: text("input_hash").notNull(), metricsJson: text("metrics_json").notNull(),
+  exposuresJson: text("exposures_json").notNull(), concentrationJson: text("concentration_json").notNull(),
+  liquidityJson: text("liquidity_json").notNull(), warningsJson: text("warnings_json").notNull().default("[]"),
+  modelVersion: text("model_version").notNull(), createdAt: text("created_at").notNull(),
+}, (t) => [uniqueIndex("portfolio_risk_snapshots_input_uq").on(t.portfolioId, t.inputHash), index("portfolio_risk_snapshots_asof_idx").on(t.portfolioId, t.asOf)]);
+
+export const portfolioActionConditions = sqliteTable("portfolio_action_conditions", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  portfolioId: text("portfolio_id").notNull().references(() => portfolios.id, { onDelete: "cascade" }),
+  securityId: text("security_id").references(() => securities.id, { onDelete: "cascade" }),
+  conditionType: text("condition_type", { enum: ["review", "add", "trim", "exit", "hedge", "re_underwrite"] }).notNull(),
+  triggerKind: text("trigger_kind", { enum: ["thesis_status", "falsifier", "risk_budget", "exposure", "correlation", "event", "manual"] }).notNull(),
+  severity: text("severity", { enum: ["info", "warning", "critical"] }).notNull(),
+  predicateJson: text("predicate_json").notNull(), message: text("message").notNull(),
+  status: text("status", { enum: ["active", "triggered", "acknowledged", "retired"] }).notNull().default("active"),
+  idempotencyKey: text("idempotency_key").notNull(), triggeredAt: text("triggered_at"), acknowledgedAt: text("acknowledged_at"),
+  asOf: text("as_of").notNull(), ...timestamps,
+}, (t) => [uniqueIndex("portfolio_action_conditions_idempotency_uq").on(t.portfolioId, t.idempotencyKey), index("portfolio_action_conditions_status_idx").on(t.portfolioId, t.status, t.updatedAt)]);

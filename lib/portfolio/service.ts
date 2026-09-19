@@ -72,6 +72,7 @@ async function refreshRisk(context: AuthContext, portfolioId: string, now: strin
 
 async function ensurePortfolio(context: AuthContext, requested?: string | null) {
   const db = getD1(); let portfolio = requested ? await db.prepare("SELECT id,name,base_currency AS baseCurrency FROM portfolios WHERE id=? AND workspace_id=?").bind(requested, context.workspaceId).first<{ id: string; name: string; baseCurrency: string }>() : null;
+  if (requested && !portfolio) throw new HttpError(404, "PORTFOLIO_NOT_FOUND", "组合不存在");
   if (!portfolio) portfolio = await db.prepare("SELECT id,name,base_currency AS baseCurrency FROM portfolios WHERE workspace_id=? ORDER BY created_at LIMIT 1").bind(context.workspaceId).first<{ id: string; name: string; baseCurrency: string }>();
   if (!portfolio) { const now = new Date().toISOString(); const id = await stableId("por", `${context.workspaceId}:core`); await db.prepare("INSERT OR IGNORE INTO portfolios (id,workspace_id,name,base_currency,created_at,updated_at) VALUES (?,?,?,?,?,?)").bind(id, context.workspaceId, "核心组合", "USD", now, now).run(); portfolio = { id, name: "核心组合", baseCurrency: "USD" }; }
   const now = new Date().toISOString(); const policyId = await stableId("prp", portfolio.id); await db.prepare("INSERT OR IGNORE INTO portfolio_risk_policies (id,workspace_id,portfolio_id,nav,created_at,updated_at) VALUES (?,?,?,0,?,?)").bind(policyId, context.workspaceId, portfolio.id, now, now).run(); return portfolio;

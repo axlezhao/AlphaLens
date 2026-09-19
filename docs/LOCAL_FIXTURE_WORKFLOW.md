@@ -63,7 +63,7 @@ pnpm local:verify:e2e
 pnpm db:local:verify-integrity
 ```
 
-该检查会打印临时状态目录，便于排错；其中只包含合成测试记录。它是 A3.1 的数据库完整性验证，不替代两个已认证用户在全部 HTTP API 上的越权测试。
+该检查会打印临时状态目录，便于排错；其中只包含合成测试记录。它是 A3.1 的数据库完整性验证。A3.2 的双租户请求级越权测试已纳入 `tests/tenant-isolation.test.ts` 与 `tests/workspace-access.test.ts`，覆盖全部 18 条路由的 401/403/404 矩阵、`x-alphalens-workspace` 选择、成员管理 API 与脱敏审计持久化。
 
 ## 清理与边界
 

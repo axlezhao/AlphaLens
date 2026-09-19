@@ -543,7 +543,7 @@ Settings            Workspace、成员、权限、预算、审计、删除
 - Research UI 渲染实际 snapshot/source/warning；**已完成核心 UI：任务结果页展示来源 URL、抓取时间、`as_of`、缓存、新鲜/陈旧、缺失能力和警告；真实 Provider/租户环境验收仍待 A3。**
 - 新建 artifact 草稿、引用 span、验证 issue 和 diff；
 - fixture-backed 本地数据库和研究任务；**已完成：loopback-only `.invalid` fixture 身份、隔离 D1 迁移、合成 Provider snapshot，以及创建/执行/查询/取消的端到端验证。**
-- **A3.1 已完成数据库基础**：owner membership、角色合法性、核心研究/组合关系同 Workspace 约束与审计 metadata 脱敏，均有新鲜 local D1 验收。仍需 A3.2 两个已认证租户的完整 HTTP/API scopes 集成测试与 A3.3 任务终态测试。
+- **A3.1 已完成数据库基础**：owner membership、角色合法性、核心研究/组合关系同 Workspace 约束与审计 metadata 脱敏，均有新鲜 local D1 验收。**A3.2 已完成请求级 RBAC**：`requireWorkspaceAccess` / `requirePortfolioAccess` / `listAccessibleWorkspaces` 统一 401/403/404，跨租户资源 ID 返回与缺失相同的 404；成员管理 API 写脱敏审计；`tests/tenant-isolation.test.ts` + `tests/workspace-access.test.ts` 双租户越权与 role-matrix 集成测试通过；`x-alphalens-workspace` 仅在 membership 校验后生效。仍需 A3.3 任务终态测试。
 
 **Gate**：用户能从一个真实/fixture 来源任务走到可复核研究草稿；没有 LLM 也能看到完整数据链路。
 

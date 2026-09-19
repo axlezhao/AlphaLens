@@ -1,0 +1,42 @@
+name: Bug report / 缺陷报告
+description: Report a reproducible problem with sanitized evidence.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: "Do not include secrets, private holdings or restricted data. Report vulnerabilities privately using SECURITY.md."
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: "0.5.0-beta or commit SHA"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, browser, Node/pnpm versions, local or hosted, and fixture or live data (no credentials).
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include a minimal example and expected versus actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Remove tokens, identity headers, account identifiers and private research.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked existing issues and known limitations in the roadmap.
+          required: true
+        - label: This report contains no credentials or private/restricted data.
+          required: true

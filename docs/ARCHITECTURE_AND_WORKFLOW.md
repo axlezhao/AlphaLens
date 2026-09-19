@@ -1,5 +1,11 @@
 # AlphaLens 架构链路、Workflow 与思维逻辑
 
+> 阅读边界（`0.5.0-beta`）：本文同时保留长期设计与已实现模块，不是完成度证明。AlphaLens 已转为独立个人开源项目；以[能力与路线图](CAPABILITIES_AND_ROADMAP.md)作为当前状态的统一入口。
+>
+> 当前实际研究链路为 Web UI → 可信认证 API → D1 队列 → Provider 数据快照 → 查询/事件 API。runner 不调用外部 LLM，首页示例论点尚未由真实研究结果替换。下文 Thesis Engine、独立 Agent 分析、完整发布/审批 DAG、新闻/宏观源等属于目标设计或不完整实验；评分为启发式，Skill 权限声明不是安全沙箱，fallback 列表不等于已执行跨供应商切换。保存 `as_of` 也不保证历史可得性。
+
+维护原则：模块完成后更新本文相关说明、README 和路线图，并记录可复现验收；不再用“比赛展示可跑通”作为生产就绪标准。
+
 ## 1. 产品目标
 
 AlphaLens 的目标不是“告诉用户买什么”，而是把公开市场研究中的关键判断过程产品化：
@@ -327,7 +333,7 @@ flowchart LR
 
 行动条件只包含触发器、谓词、严重度、解释和确认状态；数据模型与 API 均不存在券商订单、交易数量、路由或执行字段。
 
-### 5.9 P3 研究平台化链路
+### 5.9 P3 研究平台化链路（目标流程，部分实现）
 
 ```mermaid
 flowchart LR
@@ -347,13 +353,15 @@ flowchart LR
   U --> H["Signed Webhook / Scoped API"]
 ```
 
-Workflow 定义是有向无环图，节点限制、依赖存在性、循环和仲裁节点数量在发布前校验。每次运行固化 Workflow、Skill、模型、Prompt、`as_of` 与 trace；Agent 根节点可独立进入租约队列，失败策略决定其余分支是否继续。Skill 只有在 Workspace 安装且授权范围不超过 Manifest 声明时才会把指令注入节点。
+Workflow 定义是有向无环图，节点限制、依赖存在性、循环和仲裁节点数量在发布前校验。每次运行固化 Workflow、Skill、模型、Prompt、`as_of` 与 trace；角色节点进入研究快照队列，不代表独立模型调用。审批后恢复、发布节点、并发上限和部分失败终态尚需完善。Skill 安装和 Manifest 权限校验约束指令注入，但没有实现隔离不可信工具的运行时沙箱。
 
 Provider 不是硬编码“谁先返回用谁”，而是先按 capability、allowed use、健康/熔断状态、新鲜度、延迟和成本预算过滤，再给出 selected、fallback、rejected 与解释。SEC 仍是 filings 的必需权威来源；没有合法行情/一致预期授权时对应节点明确降级。
 
-仲裁不会把多个 Agent 的文本投票当成事实。它保留每个候选输出，按证据覆盖、来源权威、反证处理、新鲜度与推理清晰度逐项评分，并保存胜出者、置信度、解释和接近阈值的少数意见。研究版本必须解决开放评论、通过所需角色审批后才能发布；发布事件进入幂等 Webhook Outbox。
+当前 runner 执行 selected Provider；fallback 只是候选元数据，并未实现跨供应商失败重试。
 
-开放 API Key 只保存 SHA-256 摘要和前缀，按 scope 授权；Webhook 密钥加密保存，投递使用 `t=<unix>,v1=<HMAC-SHA256>` 签名、幂等 ID、指数退避与死信。URL 校验阻止明文 HTTP、凭据 URL、本机和字面私网地址；生产环境仍应在连接时复核 DNS 解析结果以防 rebinding。
+仲裁模块按传入的证据覆盖、来源权威、反证处理、新鲜度与推理清晰度指标评分，保存胜出者、解释和少数意见；当前候选来自角色化快照及启发式指标，而非已经验证的独立分析。平台 UI 的 Benchmark 还包含示例指标，分数不是经校准的研究可信度或投资概率。研究版本发布 API 有评论/角色审批门禁，发布事件进入幂等 Webhook Outbox；这不代表整条自动发布 DAG 已跑通。
+
+开放 API Key 只保存 SHA-256 摘要和前缀，按 scope 授权；Webhook 密钥加密保存，投递使用 `t=<unix>,v1=<HMAC-SHA256>` 签名、幂等 ID、指数退避与死信。已有 URL 校验不能视为完整 SSRF 防护：IPv6、DNS/rebinding 与实际连接地址验证仍需加固；Outbox 发送中断恢复也需端到端验证。
 
 ## 6. 错误处理与降级
 

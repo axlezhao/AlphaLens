@@ -1,234 +1,111 @@
-# 【金融】AlphaLens
+# AlphaLens
 
-> 先看证据，再做判断。
+Evidence first. Decisions second.
 
-AlphaLens 是一个基于腾讯 WorkBuddy 思路构建的美股投资研究与辅助决策系统。它不尝试预测明天涨跌，也不直接替用户荐股；它把 SEC 文件、公司 IR、财务数据、市场预期、行业信号和用户观点整理成一条可追溯、可证伪、可持续更新的投资研究链路。
+[![CI](https://github.com/axlezhao/AlphaLens/actions/workflows/ci.yml/badge.svg)](https://github.com/axlezhao/AlphaLens/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-[在线体验 AlphaLens](https://alphalens-investment-os.tracyaxle.chatgpt.site)
+[中文文档](README.zh-CN.md) · [Product architecture plan](docs/PRODUCT_ARCHITECTURE_PLAN.md) · [Roadmap](docs/CAPABILITIES_AND_ROADMAP.md) · [Development](docs/DEVELOPMENT.md) · [Architecture](docs/ARCHITECTURE_AND_WORKFLOW.md)
 
-![AlphaLens](public/og.png)
+AlphaLens is a personal, open-source research workbench for US equities. It explores how source-backed evidence, falsifiable investment theses, valuation scenarios, and portfolio risk can fit into one reviewable workflow. It does **not** place trades.
 
-## 为什么做 AlphaLens
+Originally built as a competition prototype, AlphaLens is now maintained by [axlezhao](https://github.com/axlezhao) as an independent project. WorkBuddy instructions are an optional integration experiment, not a requirement for developing the web application.
 
-个人投资者真正缺少的通常不是更多资讯，而是将资讯转化为决策所需的结构：
+## Project status
 
-- 重要结论来自哪里，数据截至什么时候；
-- 哪些是事实、市场预期、模型推断或个人观点；
-- 多头逻辑和空头逻辑分别由什么证据支持；
-- 当前价格已经隐含了怎样的增长和利润率；
-- 哪些指标出现时，原投资论点应被判定为错误；
-- 财报或重大事件后，应该怎样更新论点并复盘。
+**Experimental beta — `0.5.0-beta`, not production-ready.** The repository contains a working interface, domain services, provider adapters, and deterministic calculations. Breadth of implementation is not the same as end-to-end validation.
 
-AlphaLens 因此被设计成“投资论点操作系统”，而不是资讯聚合器或 AI 荐股机器人。
+- The landing research desk and thesis cards contain illustrative data; completing a research job does not yet replace those cards with generated research.
+- Research jobs collect provider snapshots. They do **not** currently call an external LLM or automatically produce a source-grounded investment thesis.
+- Multi-agent arbitration and quality scores are heuristic scaffolding, not calibrated investment confidence or a validated autonomous analyst system.
+- Database-backed use requires Cloudflare D1, migrations, a trusted authentication boundary, and worker scheduling. A fresh clone is not yet a self-contained multi-user backend.
 
-## 当前 Beta
+[Hosted preview](https://alphalens-investment-os.tracyaxle.chatgpt.site) — existing deployment; access may require authentication or owner approval. Public source code does not imply public access to the hosted workspace. Deployment access is unchanged.
 
-0.5 Beta 已在可恢复、可审计的研究后端之上完成 P0、P1、P2 与 P3 研究平台化，同时保留稳定的比赛展示界面：
+![AlphaLens interface preview — illustrative data, not live market data](public/og.png)
 
-1. 输入股票代码或研究问题；
-2. 异步检索 SEC、获准的公司 IR、行情与一致预期，并执行证据核验；
-3. 生成结构化投资论点；
-4. 查看支持证据、反对证据和证伪条件；
-5. 调整收入增长和估值倍数，观察 Bull/Base/Bear 结果；
-6. 在证据库中区分事实、预期和风险；
-7. 跟踪后续财报与催化剂。
+## What is in the repository?
 
-“个人工作台”现已支持用户自定义观察池、论点版本时间线、可编辑证伪条件、财报前 Preview / 财报后 Deep Dive、官方 IR 催化剂刷新、邮件/企业微信/微信公众号连接器、同行比较、当前价格隐含预期反推、复盘与认知偏差统计，以及 Markdown、PDF、Excel 报告导出。
+| Area | Implemented foundation | Important boundary |
+| --- | --- | --- |
+| Data and evidence | SEC EDGAR, approved issuer IR feeds, Alpha Vantage adapters; caching, retries, freshness metadata | Credentials, provider permissions, and data availability are deployment-dependent; per-instance SEC throttling is not a global rate limit |
+| Research jobs | D1-backed queue, idempotency, events, versioned evidence and snapshots | Snapshot collection, not automated thesis generation; historical `as_of` does not guarantee point-in-time source retrieval |
+| Personal workbench | Watchlists, thesis versions, falsifiers, earnings job types, export and notification adapters | Backend/auth configuration required; delivery and external integrations need live validation |
+| Portfolio tools | Exposure, concentration, imported-return correlation, scenario stress and action conditions | Results depend on user inputs and simplified models; no brokerage or execution integration |
+| Platform experiments | Workflow definitions, KPI/skill registries, review/publish APIs, scoped API keys and webhook outbox | Workflow lifecycle, skill isolation, failover, security and end-to-end coverage need hardening |
 
-“组合决策”现已支持持仓与观察池统一视图，行业/因子/币种/事件暴露，Gross/Net/β 调整暴露，Top‑5/HHI 集中度、基于用户导入日收益率的 Pearson 相关性、流动性退出天数、多维压力情景、组合催化剂，以及论点弱化/证伪/风险预算联动。系统只生成可确认、可审计的行动条件，没有券商连接器、订单对象或自动下单路径。
+See the [capability inventory and acceptance criteria](docs/CAPABILITIES_AND_ROADMAP.md) for what is implemented, what remains unverified, and what comes next.
 
-“研究平台”现已支持可配置、可发布的 Research Workflow DAG，半导体/SaaS/银行行业 KPI Registry，多数据商动态路由，最小权限 Research Skill Marketplace，多 Agent 独立分工与可解释仲裁，团队评论/审批/不可变研究版本发布，质量 Benchmark，以及作用域 API Key 和 HMAC 签名 Webhook。平台能力全部受 Workspace RBAC、审计和 `as_of` 约束。
+The [independent-platform architecture plan](docs/PRODUCT_ARCHITECTURE_PLAN.md) defines the proposed DeepSeek BYOK gateway, evidence-to-artifact workflow, MCP boundary, security model and phased delivery gates. It is a plan, not implemented functionality.
 
-其中，企业微信使用官方机器人 Webhook；邮件需要配置 Resend；个人微信提醒需要已获授权的微信公众号能力。未配置凭据的通道会显示为“需密钥/需官方账号”，不会伪造发送成功。
+## Quick start: interface and development
 
-研究问题支持中文及其他 Unicode 文本；客户端只把问题的 SHA-256 摘要写入 `Idempotency-Key`，原始问题始终保留在 UTF-8 JSON 请求体中。
-
-展示标的包括 NVDA、MSFT 和 AMZN；展示层的示例卡片用于比赛现场稳定演示，点击“发起深度研究”则进入真实的多租户异步任务 API。没有合法行情授权时系统明确降级，不会用固定示例冒充实时数据。
-
-## 核心设计原则
-
-- **证据优先**：所有重要结论都应关联来源、发布时间和数据截至时间。
-- **事实与观点分离**：严格区分 `FACT`、`EXPECTATION`、`INFERENCE`、`USER_VIEW` 和 `UNVERIFIED`。
-- **强制反方审查**：系统必须主动寻找与用户原观点相反的证据。
-- **论点必须可证伪**：用具体 KPI、阈值和连续期间描述何时判错。
-- **估值展示假设**：目标价格只是收入、利润率和估值倍数等假设的结果。
-- **不自动交易**：系统仅辅助研究，不调用券商下单接口。
-- **演示与生产分层**：演示数据保证稳定，生产数据通过统一契约替换。
-
-## 系统结构
-
-```text
-WorkBuddy / Web UI
-        │
-        ▼
-Versioned Research Workflow Orchestrator
-        │
-        ├── License-aware Provider Router
-        ├── Research Skill Registry
-        ├── Parallel Specialist Agents
-        └── Explainable Arbitration
-        │
-        ▼
-Normalization & Evidence Graph
-        │
-        ├── Thesis Engine
-        ├── Scenario & Valuation Engine
-        ├── Risk Challenger
-        └── Catalyst Monitor
-        │
-        ▼
-Versioned Artifact / Approval / Webhook
-```
-
-详细设计见：
-
-- [架构链路、Workflow 与思维逻辑](docs/ARCHITECTURE_AND_WORKFLOW.md)
-- [当前能力、待建设能力与未来路线图](docs/CAPABILITIES_AND_ROADMAP.md)
-- [Beta 运行、数据治理与上线手册](docs/BETA_OPERATIONS_AND_DATA_GOVERNANCE.md)
-
-## 技术栈
-
-- Next.js / React / TypeScript
-- Vinext + Vite
-- Cloudflare Workers-compatible runtime
-- D1 多租户持久化、P1/P2/P3 领域模型与可恢复任务队列
-- SEC / IR / Alpha Vantage 弹性 Provider
-- Sites Sign in with ChatGPT 与 Workspace RBAC
-- WorkBuddy Skill 包：`workbuddy-skill/`
-- Sites 私有部署
-
-## 项目目录
-
-```text
-.
-├── app/                        # Web UI 与 API Routes
-│   ├── api/health/             # 健康检查
-│   ├── api/v1/research/        # 研究任务 API
-│   ├── api/v1/workbench/       # P1 工作台查询与命令 API
-│   ├── api/v1/portfolio/       # P2 组合查询与命令 API
-│   ├── api/v1/platform/        # P3 平台控制面 API
-│   ├── api/open/v1/            # 作用域 API Key 开放接口
-│   ├── workbench.tsx           # 个人研究工作台界面
-│   ├── portfolio.tsx           # 组合辅助决策界面
-│   └── platform.tsx            # 研究平台控制面界面
-├── db/ + drizzle/              # 59 张 D1 表与版本化迁移
-├── lib/providers/              # SEC、IR、行情/预期与弹性策略
-├── lib/research/               # 队列、执行器、证据版本与研究快照
-├── lib/workbench/              # 隐含预期、连接器、导出与 P1 领域服务
-├── lib/portfolio/              # P2 暴露、相关性、压力测试和行动条件
-├── lib/platform/               # P3 Workflow、Skill、路由、仲裁、评估与 Webhook
-├── docs/                       # 架构、Workflow 与路线图
-├── workbuddy-skill/            # 可导入 WorkBuddy 的 Skill 包
-├── tests/                      # 服务端渲染验证
-├── public/                     # 品牌与分享资源
-└── .openai/hosting.json        # Sites 部署配置
-```
-
-## 本地运行
-
-需要 Node.js 22+ 和 pnpm 11+。
+Use Node.js 24 (`.nvmrc`) and pnpm **11.9.0**, pinned in `package.json`.
 
 ```bash
-pnpm install
+git clone https://github.com/axlezhao/AlphaLens.git
+cd AlphaLens
+nvm use                     # optional, if you use nvm
+npm install --global pnpm@11.9.0
+pnpm install --frozen-lockfile
 cp .env.example .env.local
 pnpm dev
 ```
 
-访问 `http://localhost:3000`。
+Open the local URL printed by the development server. The sample interface can be explored without paid market-data credentials. Authenticated research, persistence, and scheduled tasks need additional infrastructure; see [development boundaries](docs/DEVELOPMENT.md) and the [operations guide](docs/BETA_OPERATIONS_AND_DATA_GOVERNANCE.md). Do not use the example contact email for SEC requests.
 
-## 验证
+## Verify a change
 
 ```bash
 pnpm run lint
+pnpm run typecheck
 pnpm test
 ```
 
-`pnpm test` 会执行财务/估值/时间穿越/Provider 契约测试、正式构建和服务端渲染检查。
+Tests cover deterministic finance helpers, provider contracts, source conflict/time checks, portfolio/platform helpers, and built-worker server rendering. They do not establish real-provider availability, tenant security, research accuracy, or investment performance. CI runs these checks without live provider keys.
 
-## API
+## Architecture
 
-### 健康检查
+The current data path is:
 
-```http
-GET /api/health
+```text
+Web UI → authenticated API → D1 research queue → provider adapters
+                                              → source/evidence snapshots
+                                              → job status / event API
 ```
 
-### 创建研究任务
+The intended research loop is evidence → thesis → challenge → valuation → falsifier → review. Connecting the snapshot result to that complete loop is the next priority, not a completed feature.
 
-```http
-POST /api/v1/research
-Content-Type: application/json
+The application uses **TypeScript**, React/Next.js through Vinext/Vite, and Cloudflare Workers/D1. TypeScript/JavaScript is not Java. Python analytics can be introduced behind a clear interface if needed; a backend rewrite is not a prerequisite for making the current workflow reliable.
+
+```text
+app/                 Web interface and API routes
+db/ + drizzle/       Schema and versioned D1 migrations
+lib/providers/       SEC, issuer IR, licensed market/consensus adapters
+lib/research/        Job queue, snapshot runner, evidence persistence
+lib/workbench/       Personal research, exports, notifications
+lib/portfolio/       Deterministic exposure and risk calculations
+lib/platform/        Experimental workflows, routing, review and webhooks
+tests/               Automated checks
+docs/                Architecture, operations, roadmap and release notes
+workbuddy-skill/     Optional workflow instruction bundle
 ```
 
-```json
-{
-  "ticker": "NVDA",
-  "question": "AI 数据中心增长是否已经被充分计价？",
-  "asOf": "2026-07-17T20:00:00Z"
-}
-```
+## Next milestone
 
-接口返回 `202` 和可追踪的 Beta Job。客户端可轮询 `/api/v1/research/:jobId`，或从 `/events` 读取 SSE；任务支持幂等、重试、超时、取消和失败恢复。完整 API 与 Worker 配置见 [Beta 手册](docs/BETA_OPERATIONS_AND_DATA_GOVERNANCE.md)。
+1. Render a completed job's actual evidence and warnings, clearly separating sample, live, stale and missing data.
+2. Make a fresh-clone, isolated local workflow reproducible, including migrations and an explicit auth setup.
+3. Add end-to-end tenant/job tests and harden workflow recovery, outbound requests and deletion.
+4. Introduce a model adapter and measured research evaluation only after the evidence path is trustworthy.
 
-### 个人工作台与导出
+[Public issue tracker](https://github.com/axlezhao/AlphaLens/issues) · [Detailed roadmap](docs/CAPABILITIES_AND_ROADMAP.md) · [Changelog](CHANGELOG.md)
 
-```http
-GET  /api/v1/workbench?ticker=NVDA
-POST /api/v1/workbench
-POST /api/v1/implied-expectations
-GET  /api/v1/reports/NVDA?format=markdown|pdf|xlsx
-```
+## Contributing and security
 
-`POST /api/v1/workbench` 使用显式 `action` 执行观察池、论点/证伪条件版本、财报工作流、催化剂、提醒、同行组和复盘写入。所有操作都先经过登录、Workspace RBAC 与审计。
+Small, testable contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md), the [Code of Conduct](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md). Please open an issue before a major architecture change, and do not commit personal portfolios, provider responses with restricted rights, tokens, or private workspace data.
 
-### 组合层辅助决策
+## License and data
 
-```http
-GET  /api/v1/portfolio?portfolioId=...
-POST /api/v1/portfolio
-```
+The project code is licensed under [MIT](LICENSE). Third-party dependencies, provider data, trademarks, and external documents retain their own terms. The code license does not grant market-data redistribution rights. Bring your own authorized credentials and verify permitted use before enabling an integration.
 
-组合写操作使用显式 `action`：`portfolio.create`、`position.save/remove`、`policy.save`、`returns.import`、`scenario.save/run`、`risk.refresh` 与 `condition.acknowledge`。风险输入保留 `as_of`、来源状态和稳定幂等键；输出固定为 `conditions_only_no_order_execution`。
-
-### 研究平台与开放接口
-
-```http
-GET  /api/v1/platform
-POST /api/v1/platform
-GET  /api/v1/platform/runs/:runId
-
-POST /api/open/v1/research
-GET  /api/open/v1/runs/:runId
-GET  /api/open/v1/artifacts/:versionId
-Authorization: Bearer alp_...
-```
-
-平台命令覆盖 Workflow/KPI/Provider Route/Skill/Artifact/Comment/Approval/Benchmark/API Client/Webhook。开放接口只接受散列保存的作用域 API Key；Webhook 使用 HMAC-SHA256、幂等事件、指数退避、死信与 SSRF 防护。API Key 和签名密钥只在创建时显示一次。
-
-## WorkBuddy Skill
-
-`workbuddy-skill/` 包含：
-
-- `skill.yml`：技能元数据、权限和产物声明；
-- `SKILL.md`：八步投研工作流、来源优先级、证据分类与安全约束；
-- `README.md`：导入和使用说明。
-
-示例请求：
-
-> 研究 NVDA，判断 AI 数据中心增长是否已被充分计价，生成投资论点并加入观察池。
-
-## 数据与安全边界
-
-- API 密钥只通过服务端环境变量或 WorkBuddy/MCP 凭据注入管理；
-- 重要财务数字保留期间、单位、币种和来源；
-- 实时数据不可用时必须标明数据陈旧性，不用旧值冒充当前值；
-- 第三方行情、估值和新闻数据正式商用前需获得相应授权；
-- 当前系统不读取无关私人文件、不执行交易、不承诺投资收益。
-
-## 项目状态
-
-当前属于“比赛可演示、P0–P3 可供受控用户验证”的 Beta：核心持久化、身份隔离、异步执行、个人研究工作台、组合辅助决策、研究平台控制面和质量门禁已落地，但仍不是已经完成所有数据商业授权、消息通道认证、法律审查、全局限流和高可用演练的正式金融产品。详细边界见 [Beta 手册](docs/BETA_OPERATIONS_AND_DATA_GOVERNANCE.md)。
-
-## Disclaimer
-
-本项目仅用于技术研究与学习，不构成投资建议、证券推荐、收益承诺或交易要约。投资者应独立判断并自行承担风险。
+AlphaLens is research software, not investment advice. Outputs and example numbers may be incomplete or wrong; independently verify sources, timestamps, assumptions, and calculations. No automatic order execution is implemented or planned for this project.

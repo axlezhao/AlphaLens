@@ -1,5 +1,9 @@
 # AlphaLens Beta：运行链路、数据治理与上线手册
 
+> 当前为独立开源项目的实验性 `0.5.0-beta`，不是已通过安全审计的生产服务。本文描述运行配置和机制，不能替代端到端验收。先读[开发边界](DEVELOPMENT.md)、[已知缺口](CAPABILITIES_AND_ROADMAP.md)与[安全政策](../SECURITY.md)。现有部署访问权限保持不变；不要复用原项目的 hosting 标识作为自己的部署配置。
+>
+> 研究 runner 目前收集快照而非生成论点；平台仲裁/质量评分是启发式实现。Workflow 的审批恢复、发布节点、并发限制与失败终态仍需完善，Webhook Outbox 中断恢复和出站请求防护也需加固。当前没有可直接替换为普通公网 Node 服务的独立认证方案。
+
 ## 1. Beta 运行链路
 
 ```mermaid
@@ -25,7 +29,7 @@ P1 工作台复用相同租户与任务基础设施。财报 Preview / Deep Dive
 
 P2 组合层继续复用 Workspace RBAC 与审计。持仓、风险政策、收益率、相关性快照、情景版本/结果、风险快照和行动条件全部按 `workspace_id + portfolio_id` 隔离。组合分析是同步、确定性的纯计算，不调用外部交易系统；`risk.refresh` 按输入哈希去重快照并保存触发条件。
 
-P3 平台层在同一队列上增加 WorkflowRun/StepRun 编排。根 Agent 可独立调度，依赖节点只在前置成功后运行；仲裁结果、候选评分与少数意见持久化。研究发布通过评论和角色审批门禁，完成/失败/发布事件进入可靠 Webhook Outbox。`platform-worker` 同步研究任务、推进 Workflow 并投递 Webhook。
+P3 平台层在同一队列上增加实验性 WorkflowRun/StepRun 编排，角色节点仍执行来源快照任务。启发式仲裁结果、候选评分与少数意见可以持久化；研究发布 API 有评论和角色审批门禁，事件进入 Webhook Outbox。`platform-worker` 推进任务与投递，但审批恢复、发布节点、并发上限和部分失败终态尚需完善，不能把此实现视为完整的自主多 Agent 工作流。
 
 ## 2. 数据来源与授权边界
 
@@ -36,7 +40,7 @@ P3 平台层在同一队列上增加 WorkflowRun/StepRun 编排。根 Agent 可�
 | 行情 | Alpha Vantage `GLOBAL_QUOTE` | BYO 合法授权；服务端展示；禁止原始数据再分发 | 15 分钟 |
 | 一致预期 | Alpha Vantage `EARNINGS_ESTIMATES` | BYO 合法授权；明确标为 `EXPECTATION`，不得当作公司事实 | 12 小时 |
 
-Alpha Vantage 当前公开条款把超出个人用途的投资分析、研究、测试和监控列入商业使用。本项目因此同时要求 `ALPHA_VANTAGE_API_KEY` 和 `ALPHA_VANTAGE_LICENSE_ACK=commercial-or-authorized`；没有相应协议时 Provider 保持 `disabled`。实时/延时行情还受交易所权利约束，不能因为 API 技术上可调用就假设拥有展示或再分发权。
+本项目实现上同时要求 `ALPHA_VANTAGE_API_KEY` 和 `ALPHA_VANTAGE_LICENSE_ACK=commercial-or-authorized`；缺少配置时 Provider 保持 `disabled`。该确认标记不是授权合同：请在接入时自行核对下列官方条款及自己的协议，确认研究、展示、缓存和再分发等具体用途。实时/延时行情也可能受交易所权利约束，不能因为 API 技术上可调用就假设拥有使用权。
 
 依据：
 
@@ -155,13 +159,15 @@ GET    /api/open/v1/artifacts/:versionId
 
 `tests/quality.test.ts` 覆盖财务数字双来源 Tie-out、来源冲突、DCF 金样、`as_of` 时间穿越和置信度校准；`tests/provider-contract.test.ts` 覆盖 Provider 契约、缓存和 stale fallback；`tests/workbench.test.ts` 覆盖两套隐含预期反推、偏差聚合以及 Markdown/PDF/XLSX 文件签名；`tests/portfolio.test.ts` 覆盖组合风险与“无订单字段”约束；`tests/platform.test.ts` 覆盖 DAG 循环、Skill 权限、Provider 路由、仲裁解释、时间泄漏硬门禁和 Webhook SSRF；`tests/fixtures/regression-universe.json` 包含科技、银行、能源、REIT 和生物制药样本。
 
+上述是合成输入与纯函数级检查，不是完整财务模型回归、真实语料校准、历史 Provider 检索验证或安全审计；样本清单不等于每个行业已经跑通研究。PDF/XLSX 文件签名检查也不能代替页面渲染及内容人工抽检。CI 另外执行 lint 和类型检查，不需要生产密钥。
+
 发布门禁：类型检查、单元测试、正式构建、渲染测试全部通过。真实数据上线还必须跑在线 Provider smoke test，并由人工抽检 SEC 原文、期间、单位、币种、拆股口径和一致预期时间戳。
 
 依赖安装采用 pnpm 供应链策略；`pnpm-workspace.yaml` 只允许 `esbuild`、`sharp`、`unrs-resolver` 和 `workerd` 执行安装脚本。这些是当前构建/运行链所需的原生工具，新增需要安装脚本的依赖必须经过人工审查并显式加入 `allowBuilds`，不能在 CI 中关闭该门禁。
 
 ## 8. 已知 Beta 边界
 
-- 当前研究合成器是可审计的确定性 Beta 管线，尚未接入外部 LLM；模型/Prompt/trace 字段已固化，接入模型时必须逐调用写 `model_calls`。
+- 当前研究 runner 只收集 Provider 快照，尚未接入外部 LLM 或生成论点；模型/Prompt/trace 字段已固化，接入模型时必须逐调用写 `model_calls`。
 - IR 解析支持 RSS/Atom；复杂 JavaScript IR 网站需要单独获得允许的抓取或官方 feed。
 - 数据删除采用请求式流程，实际 purge 需要受控后台作业与保留策略。
 - 无 Alpha Vantage 商业/授权协议时，行情和一致预期会明确降级，不用演示数据冒充实时数据。
@@ -171,7 +177,7 @@ GET    /api/open/v1/artifacts/:versionId
 - P2 尚未接券商账户、商业因子模型或授权组合数据；价格、因子、ADV 和收益率必须由用户或授权 Provider 提供。相关性是历史 Pearson 描述统计，不等于危机期相关性保证。
 - P3 默认含三个行业 KPI 模板和三个内置 Research Skill，不代表全行业口径已完成；新增模板必须经过定义、单位、期间和回归样本评审。
 - Open API 尚需部署侧全局/分布式速率限制、密钥轮换 SLA 和异常用量告警；应用层已具备 scope、撤销、过期和审计。
-- Webhook 已阻止显式本机/私网 endpoint；正式生产还需在连接时校验 DNS 解析 IP 并限制出口，以防 DNS rebinding。
+- Webhook 有基础 URL 检查，但 IPv6、DNS 解析/重绑定及发送中断恢复需要补齐；部署时限制出口并验证实际连接 IP，不能依赖当前检查作为完整防护。
 - 本系统不下单，不构成投资建议。
 
 ## 9. 常见故障

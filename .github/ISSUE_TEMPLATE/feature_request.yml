@@ -1,0 +1,30 @@
+name: Feature proposal / 功能建议
+description: Propose a focused research workflow improvement.
+title: "[Feature] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: Which concrete research task is difficult today? Describe the user and current workflow.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed scope and alternatives
+      description: Prefer a small, testable change. Automated trade execution is out of scope.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How would someone independently verify this works, including missing or stale data?
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Data, permissions and security
+      description: Note new providers, permitted uses, credentials, costs or tenant boundaries. Never include actual keys.

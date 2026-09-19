@@ -21,6 +21,7 @@ For a repeatable local research path, use the fixture profile instead of any rea
 cp .dev.vars.example .dev.vars
 pnpm db:local:migrate
 pnpm local:verify:e2e
+pnpm db:local:verify-integrity
 ```
 
 The command migrates `alphalens-local` in local Miniflare state, starts a temporary loopback-only development server, creates/executes/queries a synthetic research job, creates/cancels a second job, then stops the server. No `--remote` flag, provider key, LLM key, email key or production account is used. See [the detailed fixture guide](LOCAL_FIXTURE_WORKFLOW.md).
@@ -56,7 +57,9 @@ pnpm test
 
 The GitHub Actions workflow installs the frozen lockfile, runs lint/type checks, then runs `pnpm test`. It uses no provider credentials or production database, and does not deploy. Add fixtures with redistribution rights rather than introducing network dependencies into unit tests.
 
-`pnpm local:verify:e2e` is an explicit local acceptance command because it launches a loopback Worker and D1 emulator. It has been manually validated against all four checked-in migrations; it never performs a remote database operation.
+`pnpm local:verify:e2e` is an explicit local acceptance command because it launches a loopback Worker and D1 emulator. It has been manually validated against all five checked-in migrations; it never performs a remote database operation.
+
+`pnpm db:local:verify-integrity` applies every migration to a fresh temporary local D1 state, then verifies that invalid member roles, cross-workspace research/portfolio records and ownership transfer to a non-member are rejected at the database boundary. It creates no remote database and requires no `.dev.vars` or Provider credentials. It validates selected core relations, not every API authorization path; keep A3.2 request-level isolation tests separate.
 
 ## Schema changes
 

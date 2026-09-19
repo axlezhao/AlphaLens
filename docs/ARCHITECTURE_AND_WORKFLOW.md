@@ -4,7 +4,7 @@
 >
 > 当前实际研究链路为 Web UI → 可信认证 API → D1 队列 → Provider 数据快照 → 查询/事件 API → 真实来源结果页。结果页展示任务实际 snapshot 的 URL、抓取时间、`as_of`、缓存、新鲜/陈旧、缺失能力与警告；首页示例论点不会被包装为本次任务产物。runner 不调用外部 LLM。下文 Thesis Engine、独立 Agent 分析、完整发布/审批 DAG、新闻/宏观源等属于目标设计或不完整实验；评分为启发式，Skill 权限声明不是安全沙箱，fallback 列表不等于已执行跨供应商切换。保存 `as_of` 也不保证历史可得性。
 >
-> 本地开发另有隔离分支：`loopback fixture identity → local D1 → synthetic Provider snapshots → result view`。它必须同时启用本地与 fixture 开关、接收 loopback 请求并使用 `.invalid` 身份；fixture 来源明确标为合成数据，绝不访问真实 Provider。详见[本地 Fixture 工作流](LOCAL_FIXTURE_WORKFLOW.md)。
+> 本地开发另有隔离分支：`loopback fixture identity → local D1 → synthetic Provider snapshots → result view`。它必须同时启用本地与 fixture 开关、接收 loopback 请求并使用 `.invalid` 身份；fixture 来源明确标为合成数据，绝不访问真实 Provider。A3.1 还将核心记录的 `workspace_id` 与其 Security、Source、Job 或 Portfolio 父记录在 D1 触发器中对齐，避免应用代码失误把已存在的另一租户 ID 写入关系表；HTTP 级越权测试仍是下一步。详见[本地 Fixture 工作流](LOCAL_FIXTURE_WORKFLOW.md)。
 
 维护原则：模块完成后更新本文相关说明、README 和路线图，并记录可复现验收；不再用“比赛展示可跑通”作为生产就绪标准。
 

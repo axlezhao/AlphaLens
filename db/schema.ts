@@ -223,7 +223,10 @@ export const auditLogs = sqliteTable("audit_logs", {
   ipHash: text("ip_hash"),
   metadataJson: text("metadata_json").notNull().default("{}"),
   createdAt: text("created_at").notNull(),
-}, (t) => [index("audit_logs_workspace_created_idx").on(t.workspaceId, t.createdAt)]);
+}, (t) => [
+  index("audit_logs_workspace_created_idx").on(t.workspaceId, t.createdAt),
+  index("audit_logs_actor_created_idx").on(t.actorUserId, t.createdAt),
+]);
 
 export const deletionRequests = sqliteTable("deletion_requests", {
   id: text("id").primaryKey(),

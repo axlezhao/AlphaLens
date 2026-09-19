@@ -10,11 +10,14 @@ This file records delivered changes, not a guarantee that every integration is p
 - Added snapshot-schema parsing at the API/UI boundary and unit coverage that malformed persisted JSON cannot be presented as live research.
 - Labelled the landing desk and evidence graph as sample data, and removed the research overlay's unsupported claims of automated thesis, valuation and challenge generation.
 - Added an isolated local D1 fixture profile, loopback-only `.invalid` development identity, synthetic Provider snapshots and an end-to-end create/execute/query/cancel verification command. It uses no real Provider, LLM or production credentials.
+- Added A3.1 D1 tenant-integrity protections: validated Workspace member roles, automatic controlling-owner membership for new Workspaces, member-only owner transfer, and cross-Workspace relation guards for core research and portfolio records.
+- Added bounded audit-metadata sanitization so credential-like values, raw request/content fields and prompts are excluded before audit persistence, plus a fresh local-D1 integrity verification command.
 
 ### Documentation
 
 - Added a detailed independent-platform architecture plan covering a DeepSeek-first provider-neutral LLM gateway, per-Workspace BYOK security, evidence-to-artifact research workflow, MCP integration, evaluation and staged delivery gates.
 - Clarified that exposed API credentials must be revoked and that no personal model key belongs in the repository, public demo, MCP configuration or client-side storage.
+- Documented the A3.1 database boundary, local validation command and its remaining HTTP-level authorization limits.
 
 Planned implementation work remains tracked in the [roadmap](docs/CAPABILITIES_AND_ROADMAP.md); no LLM or MCP runtime code is included in this documentation change.
 

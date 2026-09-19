@@ -61,13 +61,14 @@ SEC 在单 Worker 内限制为每 125ms 一次（8 req/s，低于公开的 10 re
 - API 从可信转发头读取用户，按规范化邮箱生成稳定用户 ID。
 - 每条业务记录都带 `workspace_id`；所有读写先查 `workspace_members`。
 - `viewer` 可读取，`editor` 可创建/取消研究，`owner` 可请求账户删除。
+- `0004_military_nemesis.sql` 在 D1 层拒绝非法成员角色、把 owner 转给非成员，以及核心 ResearchJob/Evidence/Thesis/Catalyst/Review/ModelCall 与 Portfolio 记录的跨 Workspace 引用；这是一层纵深防御，不能替代每条 API 的授权查询。
 - IR 连接器只访问证券记录中批准的同域 HTTPS 地址；SEC 只访问固定官方端点；行情 Key 只在服务端环境变量中存在。
-- 审计日志保存动作、资源、request ID、时间和散列后的 IP，不保存原始 IP。
+- 审计日志保存动作、资源、request ID、时间和散列后的 IP，不保存原始 IP；写入前会剔除 token、cookie、API key、credential、prompt、raw body/content 等高风险 metadata，并限制嵌套深度、数量和字符串长度。
 - 删除接口先创建可审计请求；后台数据保留策略执行级联删除。生产上线前应明确法定保留例外和 SLA。
 
 ## 5. 数据模型与版本规则
 
-基础迁移位于 `drizzle/0000_pretty_squadron_sinister.sql`，P1/P2 增量迁移分别位于 `0001`/`0002`，P3 增量迁移位于 `drizzle/0003_funny_ares.sql`，共 59 张表。P3 新增 Workflow/Step Run、KPI Model、Provider Route、Research Skill/Installation、Arbitration、Artifact Version、Comment/Approval、Benchmark/Evaluation、API Client 和 Webhook Outbox 模型。
+基础迁移位于 `drizzle/0000_pretty_squadron_sinister.sql`，P1/P2 增量迁移分别位于 `0001`/`0002`，P3 增量迁移位于 `drizzle/0003_funny_ares.sql`，共 59 张表。`0004_military_nemesis.sql` 增加审计查询索引与核心 Workspace 关系完整性触发器，不新增领域表。P3 新增 Workflow/Step Run、KPI Model、Provider Route、Research Skill/Installation、Arbitration、Artifact Version、Comment/Approval、Benchmark/Evaluation、API Client 和 Webhook Outbox 模型。
 
 - 稳定 ID：自然键经命名空间 SHA-256 生成，不依赖数据库自增值。
 - Evidence/Thesis：`logical_id + version` 唯一，新版本记录 `supersedes_id`。

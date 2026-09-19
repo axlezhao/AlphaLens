@@ -55,8 +55,18 @@ pnpm local:verify:e2e
 
 默认 fixture 模式会设置 `ALPHALENS_LOCAL_MANUAL_WORKER=true`，避免创建 API 自动执行任务，从而可以稳定验证取消行为。真实部署不应设置这些本地变量。
 
+## 验证 Workspace 数据完整性
+
+以下命令不启动 Web 服务，也不需要 `.dev.vars`。它会将所有迁移应用到一个全新的临时 D1 状态，并验证数据库拒绝非法成员角色、跨 Workspace 的 ResearchJob、跨 Workspace 的 PortfolioPosition，以及把 Workspace owner 转给非成员的操作：
+
+```bash
+pnpm db:local:verify-integrity
+```
+
+该检查会打印临时状态目录，便于排错；其中只包含合成测试记录。它是 A3.1 的数据库完整性验证，不替代两个已认证用户在全部 HTTP API 上的越权测试。
+
 ## 清理与边界
 
 停止本地服务后，可按你自己的本机数据策略删除 `.wrangler/state/` 以重置 fixture 数据库。该路径永远不应指向生产 D1。
 
-本地 fixture 通过只证明：迁移、认证边界的本地分支、研究队列、执行、查询、取消和结果展示能协同工作。它**不**证明真实 SEC/IR/行情连通性、数据授权、生产登录、租户攻击防护、异步恢复或投资研究准确性。
+本地 fixture 通过只证明：迁移、认证边界的本地分支、研究队列、执行、查询、取消和结果展示能协同工作；A3.1 还证明选定核心表的跨 Workspace 引用在 D1 层被拒绝。它**不**证明真实 SEC/IR/行情连通性、数据授权、生产登录、所有路由的租户攻击防护、异步恢复或投资研究准确性。

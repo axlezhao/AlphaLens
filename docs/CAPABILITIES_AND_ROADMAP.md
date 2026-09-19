@@ -12,8 +12,8 @@
 | --- | --- | --- | --- |
 | 界面 | 研究台、论点、情景、证据与工作台/组合/平台页面；研究任务真实来源结果页 | `app/` | 首页仍主要使用示例卡片；结果页展示 snapshot，不是自动生成的研究论点 |
 | 数据接入 | SEC、获准 IR Feed、Alpha Vantage 行情/预期、缓存/重试/熔断 | `lib/providers/` | 合法凭据与 Feed 配置必需；契约测试非实时连通测试 |
-| 持久化 | 59 张领域表、版本、幂等键、`as_of`、审计与本地 D1 迁移脚本 | `db/`, `drizzle/`, `wrangler.local.jsonc` | 本地 fixture 已验收；缺少完整多租户数据库集成测试 |
-| 身份与权限 | 可信平台身份头、Workspace RBAC、API Key scope；loopback fixture `.invalid` 身份 | `lib/auth/`, `lib/runtime/`, `lib/platform/` | fixture 身份仅限本机；生产仍依赖可信入口，不能把用户自报身份头当作安全登录 |
+| 持久化 | 59 张领域表、版本、幂等键、`as_of`、审计与本地 D1 迁移；核心 Workspace 引用约束 | `db/`, `drizzle/`, `wrangler.local.jsonc` | A3.1 D1 完整性脚本已验收；仍缺少覆盖所有路由的多租户集成测试 |
+| 身份与权限 | 可信平台身份头、Workspace RBAC、API Key scope；loopback fixture `.invalid` 身份 | `lib/auth/`, `lib/runtime/`, `lib/platform/` | workspace 成员角色与 controlling owner 有 D1 约束；生产仍依赖可信入口，不能把用户自报身份头当作安全登录 |
 | 异步研究 | 任务租约、事件、取消、重试/恢复代码、Provider 快照与本地 fixture runner | `lib/research/`, `scripts/local/` | fixture 链路已验收；不调用 LLM，不自动产出新论点；恢复竞态需专项测试 |
 | 个人研究 | 自定义观察池、版本、证伪条件、财报任务、复盘、同行与反向估值 | `lib/workbench/` | 需后台配置；Preview/Deep Dive 是任务类型，不是完整财报分析模型 |
 | 导出和提醒 | Markdown/PDF/XLSX、邮件/企业微信/公众号适配器 | `lib/workbench/` | 外部投递需凭据与实际验证，不支持任意个人微信直发 |
@@ -43,7 +43,7 @@
 | --- | --- | --- |
 | A1 | 真实研究结果 UI | **核心实现已完成**：完成任务后读取实际 snapshot，展示 source URL、`fetchedAt`/`as_of`、缓存、新鲜/陈旧、缺失与警告；示例数据有明确标签；失败或无 snapshot 不会展示为成功研究。仍需在真实 D1/Provider 环境做验收。 |
 | A2 | 可重复本地开发 | **核心实现已完成并实际验收**：`wrangler.local.jsonc` + `.dev.vars.example` 初始化隔离 D1；测试身份只在 loopback + `.invalid` 账户生效；`pnpm local:verify:e2e` 创建、执行、查询、取消 fixture 任务；无需生产密钥。生产自托管与多租户验收仍不在此范围。 |
-| A3 | 安全与任务集成测试 | 两租户访问隔离、API scopes、重试/租约失效/取消、通知/Webhook 崩溃恢复、删除完成均有可重跑测试 |
+| A3 | 安全与任务集成测试 | **A3.1 已完成基础**：角色合法性、owner 成员关系、核心研究/组合记录同 Workspace 引用、审计元数据脱敏均由迁移/测试覆盖。A3.2 仍需两租户请求级访问隔离与 API scopes；A3.3 仍需重试/租约失效/取消、通知/Webhook 崩溃恢复和删除完成的可重跑测试。 |
 | A4 | Workflow 生命周期 | 审批暂停/恢复、publish、并发限制、依赖失败策略和最终状态均经测试；不留永久 running 的任务 |
 | B1 | 可观测的模型适配器 | 输入/输出 schema、模型/Prompt 版本、调用追踪、超时、费用上限和引用校验；先 fixture 后真实调用 |
 | B2 | 研究质量评估 | 公开合法 fixture、行业基准案例、引用准确率与数字 tie-out；人工抽检；质量分数不能冒充投资获利概率 |

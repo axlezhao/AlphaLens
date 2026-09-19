@@ -2,6 +2,7 @@ import { getChatGPTUser } from "../../app/chatgpt-auth";
 import { getD1 } from "../../db";
 import { stableId } from "../core/ids";
 import { localFixtureUser } from "../runtime/local-fixture";
+import { sanitizeAuditMetadata } from "./audit-metadata";
 
 export type WorkspaceRole = "owner" | "editor" | "viewer";
 export type AuthContext = { userId: string; email: string; workspaceId: string; role: WorkspaceRole };
@@ -37,7 +38,7 @@ export async function audit(request: Request, context: Partial<AuthContext>, act
   const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
   const ipHash = await stableId("ip", ip);
   await db.prepare("INSERT INTO audit_logs (id,workspace_id,actor_user_id,action,resource_type,resource_id,request_id,ip_hash,metadata_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-    .bind(crypto.randomUUID(), context.workspaceId ?? null, context.userId ?? null, action, resourceType, resourceId ?? null, requestId, ipHash, JSON.stringify(metadata), new Date().toISOString()).run();
+    .bind(crypto.randomUUID(), context.workspaceId ?? null, context.userId ?? null, action, resourceType, resourceId ?? null, requestId, ipHash, JSON.stringify(sanitizeAuditMetadata(metadata)), new Date().toISOString()).run();
 }
 
 export function apiError(error: unknown, requestId = crypto.randomUUID()): Response {

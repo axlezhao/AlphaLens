@@ -18,7 +18,7 @@ Originally built as a competition prototype, AlphaLens is now maintained by [axl
 - The landing research desk and thesis cards contain illustrative data, now visibly labelled as samples. A completed research job opens a separate result view with that job's actual provider snapshot, source URL, `as_of`, fetched time, freshness, missing capabilities and warnings; it does not replace the sample thesis cards or generate a thesis.
 - Research jobs collect provider snapshots. They do **not** currently call an external LLM or automatically produce a source-grounded investment thesis.
 - Multi-agent arbitration and quality scores are heuristic scaffolding, not calibrated investment confidence or a validated autonomous analyst system.
-- A fresh clone can run a loopback-only, fixture-backed D1 workflow with a synthetic `.invalid` development identity. It is not a self-contained multi-user backend or a production authentication setup.
+- A fresh clone can run a loopback-only, fixture-backed D1 workflow with a synthetic `.invalid` development identity. Core research/portfolio cross-workspace references are now guarded in D1 migrations and can be tested locally; this is not yet a self-contained multi-user backend or a production authentication setup.
 
 [Hosted preview](https://alphalens-investment-os.tracyaxle.chatgpt.site) — existing deployment; access may require authentication or owner approval. Public source code does not imply public access to the hosted workspace. Deployment access is unchanged.
 
@@ -70,9 +70,10 @@ This command starts a loopback-only server temporarily, creates/executes/queries
 pnpm run lint
 pnpm run typecheck
 pnpm test
+pnpm db:local:verify-integrity
 ```
 
-Tests cover deterministic finance helpers, provider contracts, source conflict/time checks, portfolio/platform helpers, and built-worker server rendering. They do not establish real-provider availability, tenant security, research accuracy, or investment performance. CI runs these checks without live provider keys.
+The isolated D1 check verifies owner membership, valid roles, and database-level rejection of selected cross-workspace research and portfolio writes. The checks do not establish real-provider availability, full request-level authorization coverage, research accuracy, or investment performance. CI runs them without live provider keys.
 
 ## Architecture
 
@@ -103,7 +104,7 @@ workbuddy-skill/     Optional workflow instruction bundle
 
 ## Next milestone
 
-1. Add end-to-end tenant/job tests and harden workflow recovery, outbound requests and deletion.
+1. Extend the D1 tenant-integrity foundation into full request-level authorization tests, then harden workflow recovery, outbound requests and deletion.
 2. Extend the result view into a reviewable evidence artifact with citation spans and explicit human review.
 3. Introduce a model adapter and measured research evaluation only after the evidence path is trustworthy.
 

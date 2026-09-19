@@ -38,7 +38,7 @@
 | 首页与研究卡主要是示例 | 点击后看不到真实研究产物 | UI 只渲染实际 snapshot/artifact；示例必须有明显标签 |
 | runner 只抓数据 | “深度研究”没有完整报告 | 证据 → 提取 → 正反论点 → 估值 → 证伪 → 审核形成版本化产物 |
 | 没有真实 LLM 调用 | Agent 页面只是结构 | LLM Gateway、Prompt/Model 版本、成本、调用追踪和结构化输出全部落库 |
-| 身份依赖原托管平台 | 新用户难以本地运行 | 独立认证边界和可重复的本地 fixture 开发路径 |
+| 身份依赖原托管平台 | 新用户难以本地运行 | 独立认证边界和可重复的本地 fixture 开发路径（本地 fixture 路径已实现；非生产多用户认证仍待实现） |
 | P3 生命周期不完整 | Workflow 可能卡在中间状态 | 审批恢复、取消、超时、发布、失败终态均可测试 |
 | MCP/Skill 未形成产品接口 | 每个 Agent 接法不同 | 一个远程 MCP Server + 可选 Host 专用 Skill/说明包 |
 | 过早铺开大量功能 | 功能多但可信闭环弱 | 优先完成单公司研究闭环，再扩展组合和 Marketplace |
@@ -540,9 +540,9 @@ Settings            Workspace、成员、权限、预算、审计、删除
 
 ### Phase 1：真实证据闭环
 
-- Research UI 渲染实际 snapshot/source/warning；**已完成核心 UI：任务结果页展示来源 URL、抓取时间、`as_of`、缓存、新鲜/陈旧、缺失能力和警告；真实环境验收仍待 A2/A3。**
+- Research UI 渲染实际 snapshot/source/warning；**已完成核心 UI：任务结果页展示来源 URL、抓取时间、`as_of`、缓存、新鲜/陈旧、缺失能力和警告；真实 Provider/租户环境验收仍待 A3。**
 - 新建 artifact 草稿、引用 span、验证 issue 和 diff；
-- fixture-backed 本地数据库和研究任务；
+- fixture-backed 本地数据库和研究任务；**已完成：loopback-only `.invalid` fixture 身份、隔离 D1 迁移、合成 Provider snapshot，以及创建/执行/查询/取消的端到端验证。**
 - 两租户集成测试与任务终态测试。
 
 **Gate**：用户能从一个真实/fixture 来源任务走到可复核研究草稿；没有 LLM 也能看到完整数据链路。

@@ -60,7 +60,7 @@ export default function ResearchResult({ job, onBack }: { job: ResearchResultJob
     </section>
 
     <section className={`panel result-status ${isComplete ? "complete" : "incomplete"}`}>
-      <div><span className="result-label">真实任务数据</span><strong>{statusCopy(job.status)}</strong></div>
+      <div><span className="result-label">{snapshot?.sourceMode === "fixture" ? "本地 fixture 任务" : "真实任务数据"}</span><strong>{statusCopy(job.status)}</strong></div>
       <dl>
         <div><dt>任务 ID</dt><dd>{job.id}</dd></div>
         <div><dt>研究 as_of</dt><dd>{date(job.asOf)}</dd></div>
@@ -77,8 +77,8 @@ export default function ResearchResult({ job, onBack }: { job: ResearchResultJob
 
     {snapshot && <>
       <section className="panel result-disclosure">
-        <span className="type neutral">证据快照</span>
-        <div><h2>这是来源采集结果，不是投资建议或 AI 自动论点。</h2><p>本次任务未调用外部 LLM，也未从原始数据自动生成多空结论、目标价或证伪条件。请先核验下面的来源、时间边界和警告，再进行人工研究。</p></div>
+        <span className="type neutral">{snapshot.sourceMode === "fixture" ? "本地 fixture" : "证据快照"}</span>
+        <div><h2>{snapshot.sourceMode === "fixture" ? "这是本地合成数据，未访问外部数据源。" : "这是来源采集结果，不是投资建议或 AI 自动论点。"}</h2><p>{snapshot.sourceMode === "fixture" ? "Fixture 用于验证创建、执行、查询、取消和来源展示链路。它不是行情、公司披露、投资建议或回测数据。" : "本次任务未调用外部 LLM，也未从原始数据自动生成多空结论、目标价或证伪条件。请先核验下面的来源、时间边界和警告，再进行人工研究。"}</p></div>
       </section>
 
       <section className="result-metrics">

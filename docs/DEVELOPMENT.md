@@ -13,13 +13,27 @@ pnpm dev
 
 Visit the address printed by Vite/Vinext. The UI includes bundled sample data. This setup is for UI development, not a claim that every backend action works without infrastructure. Do not commit `.env.local` or copy production credentials into a demo.
 
+## Verified local fixture workflow
+
+For a repeatable local research path, use the fixture profile instead of any real Provider or production authentication setup:
+
+```bash
+cp .dev.vars.example .dev.vars
+pnpm db:local:migrate
+pnpm local:verify:e2e
+```
+
+The command migrates `alphalens-local` in local Miniflare state, starts a temporary loopback-only development server, creates/executes/queries a synthetic research job, creates/cancels a second job, then stops the server. No `--remote` flag, provider key, LLM key, email key or production account is used. See [the detailed fixture guide](LOCAL_FIXTURE_WORKFLOW.md).
+
+Fixture authentication is an explicit and deliberately narrow development seam: it requires both fixture variables, a loopback request and a `.invalid` email. It never trusts a browser-provided identity header and must not be enabled in any deployed environment.
+
 ## What needs additional infrastructure?
 
 | Operation | Requirement |
 | --- | --- |
 | Read the sample interface / deterministic tests | Node/pnpm and installed dependencies |
-| Persist workspace, watchlist or research records | A bound D1 database with all checked-in migrations applied in order |
-| Authenticate browser requests | Trusted hosting identity integration; current app expects Sites-provided identity |
+| Persist workspace, watchlist or research records | A bound D1 database with all checked-in migrations applied in order; `pnpm db:local:migrate` provides an isolated local profile |
+| Authenticate browser requests | Trusted hosting identity integration; local fixture profile provides a loopback-only `.invalid` test identity, not a production login |
 | Execute/recover queued and scheduled work | Internal worker endpoints and scheduled invocation with a shared secret |
 | Fetch SEC / issuer documents | Network access, a real monitored User-Agent contact, approved issuer feed configuration |
 | Market quote / consensus | Your own authorized provider credentials and explicit license acknowledgement |
@@ -27,7 +41,7 @@ Visit the address printed by Vite/Vinext. The UI includes bundled sample data. T
 
 See [operations](BETA_OPERATIONS_AND_DATA_GOVERNANCE.md) for binding, variable and endpoint details. The existing `.openai/hosting.json` identifies the original hosted project; it is not a portable deployment credential or an instruction to reuse that project. The placeholder database ID in `vite.config.ts` is not a production database.
 
-There is not yet a verified standalone self-hosted authentication/bootstrap flow. Do not work around this by trusting identity headers from a browser. Keep development services bound to your local machine and use isolated data. A reproducible local fixture-backed backend is a [priority milestone](CAPABILITIES_AND_ROADMAP.md).
+There is a verified fixture-backed local bootstrap flow, but there is not yet a standalone multi-user self-hosted authentication flow. Do not work around this by trusting identity headers from a browser. Keep development services bound to your local machine and use isolated data. Tenant isolation, recovery and deletion acceptance remain [the next milestone](CAPABILITIES_AND_ROADMAP.md).
 
 ## Checks
 
@@ -41,6 +55,8 @@ pnpm test
 `pnpm test` runs unit tests, builds the Worker, and runs the rendered-HTML test using a test-only Cloudflare module loader. Node may warn that the custom loader is experimental. The loader stubs the runtime for the SSR assertion; it is not a production runtime or a database integration test.
 
 The GitHub Actions workflow installs the frozen lockfile, runs lint/type checks, then runs `pnpm test`. It uses no provider credentials or production database, and does not deploy. Add fixtures with redistribution rights rather than introducing network dependencies into unit tests.
+
+`pnpm local:verify:e2e` is an explicit local acceptance command because it launches a loopback Worker and D1 emulator. It has been manually validated against all four checked-in migrations; it never performs a remote database operation.
 
 ## Schema changes
 

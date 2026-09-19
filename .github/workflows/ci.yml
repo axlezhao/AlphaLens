@@ -39,3 +39,8 @@ jobs:
         run: pnpm run typecheck
       - name: Unit tests, production build and SSR regression
         run: pnpm test
+      - name: Local D1 fixture workflow
+        run: |
+          cp .dev.vars.example .dev.vars
+          pnpm db:local:migrate
+          pnpm local:verify:e2e

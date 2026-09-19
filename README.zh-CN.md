@@ -13,7 +13,7 @@ AlphaLens 是由 [axlezhao](https://github.com/axlezhao) 维护的个人开源�
 - 首页研究台、论点卡包含示例数据，并已明确标注；研究任务完成后会进入独立结果页，展示该任务实际保存的来源、URL、`as_of`、抓取时间、新鲜度、缺口和警告，但不会替换示例论点卡或自动生成论点。
 - 异步研究任务目前收集数据源快照，不调用外部 LLM，也不会自动生成有证据支撑的投资论点。
 - 多 Agent 仲裁和质量评分是启发式实验，不代表经校准的投资置信度。
-- 持久化与多用户能力依赖 D1、迁移、可信认证边界和 Worker 调度；克隆仓库不等于拥有完整后端。
+- 新克隆可运行仅限 loopback 的 fixture D1 工作流与 `.invalid` 开发身份；这不等于具备完整多用户后端或生产认证。
 
 [在线预览](https://alphalens-investment-os.tracyaxle.chatgpt.site)可能要求登录或所有者授权。仓库公开不代表在线 Workspace 公开；本次整理未改变部署访问权限。
 
@@ -49,6 +49,16 @@ pnpm dev
 
 访问终端输出的本地地址。不配置付费数据密钥也可以查看示例界面；登录、研究、数据库写入和定时任务需要额外基础设施。参见[开发指南](docs/DEVELOPMENT.md)与[运行手册](docs/BETA_OPERATIONS_AND_DATA_GOVERNANCE.md)。SEC 请求必须使用真实且有人维护的联系邮箱，不能照搬示例。
 
+如需在不使用任何真实数据、模型或生产凭据的前提下验证完整本地研究链路，请使用[本地 Fixture 工作流](docs/LOCAL_FIXTURE_WORKFLOW.md)：
+
+```bash
+cp .dev.vars.example .dev.vars
+pnpm db:local:migrate
+pnpm local:verify:e2e
+```
+
+它会临时启动仅 loopback 服务，验证创建、执行、查询和取消的合成研究任务，随后自动停止。
+
 ```bash
 pnpm run lint
 pnpm run typecheck
@@ -63,10 +73,9 @@ pnpm test
 
 下一阶段优先级：
 
-1. 提供可重复的本地数据库初始化、认证配置与完整用户旅程。
-2. 增加租户隔离/任务恢复端到端测试，加固出站请求、删除流程及 Workflow 生命周期。
-3. 将结果页扩展为可引用的研究草稿与人工 Review 流程。
-4. 再接模型、构建真实评估集，验证自动研究的质量。
+1. 增加租户隔离/任务恢复端到端测试，加固出站请求、删除流程及 Workflow 生命周期。
+2. 将结果页扩展为可引用的研究草稿与人工 Review 流程。
+3. 再接模型、构建真实评估集，验证自动研究的质量。
 
 [Issue](https://github.com/axlezhao/AlphaLens/issues) · [路线图](docs/CAPABILITIES_AND_ROADMAP.md) · [版本记录](CHANGELOG.md) · [贡献指南](CONTRIBUTING.md) · [安全政策](SECURITY.md)
 

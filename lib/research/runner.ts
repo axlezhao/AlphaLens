@@ -5,7 +5,9 @@ import { secCompany } from "../providers/sec-edgar";
 import type { ProviderEnvelope } from "../providers/types";
 import { resolveProviderPlan } from "../platform/provider-routing";
 import { saveSource, saveVersionedEvidence } from "./evidence-repository";
+import { fixtureProviderSnapshots } from "./fixture-provider";
 import { appendEvent } from "./queue";
+import { isLocalFixtureMode } from "../runtime/local-fixture";
 
 type ClaimedJob = { id: string; workspaceId: string; securityId: string; ticker: string; question: string; asOf: string; attempts: number; maxAttempts: number; irBaseUrl: string | null; irFeedUrl: string | null };
 
@@ -34,6 +36,7 @@ async function claimNextJob(workerId: string): Promise<ClaimedJob | null> {
 
 async function executeJob(job: ClaimedJob) {
   const db = getD1();
+  const fixtureMode = isLocalFixtureMode();
   const plan = await resolveProviderPlan(job.workspaceId, [
     { capability: "filings", use: "research", requireFreshnessSeconds: 86400 },
     { capability: "market-quote", use: "research", requireFreshnessSeconds: 3600 },
@@ -42,12 +45,16 @@ async function executeJob(job: ClaimedJob) {
   ]);
   const selected = new Set(plan.map((item) => item.selected?.provider).filter(Boolean));
   const calls: Array<Promise<ProviderEnvelope<unknown>>> = [];
-  if (selected.has("sec-edgar")) calls.push(secCompany(job.ticker).then((value) => value.filings as ProviderEnvelope<unknown>));
-  if (selected.has("alpha-vantage-market")) calls.push(marketQuote(job.ticker));
-  if (selected.has("alpha-vantage-consensus")) calls.push(consensusEstimates(job.ticker));
-  if (selected.has("issuer-ir") && job.irBaseUrl && job.irFeedUrl) calls.push(issuerIrEvents(job.irFeedUrl, job.irBaseUrl));
+  if (!fixtureMode) {
+    if (selected.has("sec-edgar")) calls.push(secCompany(job.ticker).then((value) => value.filings as ProviderEnvelope<unknown>));
+    if (selected.has("alpha-vantage-market")) calls.push(marketQuote(job.ticker));
+    if (selected.has("alpha-vantage-consensus")) calls.push(consensusEstimates(job.ticker));
+    if (selected.has("issuer-ir") && job.irBaseUrl && job.irFeedUrl) calls.push(issuerIrEvents(job.irFeedUrl, job.irBaseUrl));
+  }
   try {
-    const settled = await Promise.allSettled(calls);
+    const settled = fixtureMode
+      ? fixtureProviderSnapshots(job.ticker, job.asOf).map((value) => ({ status: "fulfilled" as const, value }))
+      : await Promise.allSettled(calls);
     if ((await db.prepare("SELECT cancel_requested_at AS cancelled FROM research_jobs WHERE id=?").bind(job.id).first<{ cancelled: string | null }>())?.cancelled) {
       await finish(job.id, "cancelled", null); return { id: job.id, status: "cancelled" };
     }
@@ -62,7 +69,7 @@ async function executeJob(job: ClaimedJob) {
       if (envelope.provider === "alpha-vantage-market") await saveVersionedEvidence({ workspaceId: job.workspaceId, securityId: job.securityId, sourceId, naturalKey: "market-quote", kind: "FACT", claim: `${job.ticker} market quote snapshot`, value: envelope.data, observedAt: envelope.fetchedAt, asOf: job.asOf, confidence: envelope.freshness === "fresh" ? 0.9 : 0.65 });
       if (envelope.provider === "alpha-vantage-consensus") await saveVersionedEvidence({ workspaceId: job.workspaceId, securityId: job.securityId, sourceId, naturalKey: "consensus-estimates", kind: "EXPECTATION", claim: `${job.ticker} analyst EPS and revenue consensus snapshot`, value: envelope.data, observedAt: envelope.fetchedAt, asOf: job.asOf, confidence: envelope.freshness === "fresh" ? 0.85 : 0.6 });
     }
-    const snapshot = { schemaVersion: 1, ticker: job.ticker, question: job.question, asOf: job.asOf, generatedAt: new Date().toISOString(), providerPlan: plan.map((item) => ({ capability: item.request.capability, selected: item.selected?.provider ?? null, fallbacks: item.fallbacks.map((route) => route.provider), rejected: item.rejected, explanation: item.explanation })), sources: fulfilled.map(compactEnvelope), warnings: failures };
+    const snapshot = { schemaVersion: 1, sourceMode: fixtureMode ? "fixture" : "live", ticker: job.ticker, question: job.question, asOf: job.asOf, generatedAt: new Date().toISOString(), providerPlan: plan.map((item) => ({ capability: item.request.capability, selected: item.selected?.provider ?? null, fallbacks: item.fallbacks.map((route) => route.provider), rejected: item.rejected, explanation: item.explanation })), sources: fulfilled.map(compactEnvelope), warnings: failures };
     await db.prepare("UPDATE research_jobs SET status='succeeded',snapshot_json=?,completed_at=?,lease_owner=NULL,lease_expires_at=NULL,updated_at=? WHERE id=?").bind(JSON.stringify(snapshot), new Date().toISOString(), new Date().toISOString(), job.id).run();
     await appendEvent(job.id, "succeeded", { sources: fulfilled.length, warnings: failures });
     return { id: job.id, status: "succeeded" };

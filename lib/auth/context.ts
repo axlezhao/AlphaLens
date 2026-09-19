@@ -1,6 +1,7 @@
 import { getChatGPTUser } from "../../app/chatgpt-auth";
 import { getD1 } from "../../db";
 import { stableId } from "../core/ids";
+import { localFixtureUser } from "../runtime/local-fixture";
 
 export type WorkspaceRole = "owner" | "editor" | "viewer";
 export type AuthContext = { userId: string; email: string; workspaceId: string; role: WorkspaceRole };
@@ -10,7 +11,7 @@ export class HttpError extends Error {
 }
 
 export async function requireApiContext(request: Request, minimumRole: WorkspaceRole = "viewer"): Promise<AuthContext> {
-  const user = await getChatGPTUser();
+  const user = await getChatGPTUser() ?? localFixtureUser(request);
   if (!user) throw new HttpError(401, "UNAUTHENTICATED", "请先使用 ChatGPT 登录");
 
   const db = getD1();

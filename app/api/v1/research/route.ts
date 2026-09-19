@@ -3,6 +3,7 @@ import { apiError, audit, requireApiContext } from "../../../../lib/auth/context
 import { enqueueResearch } from "../../../../lib/research/queue";
 import { runNextJobs } from "../../../../lib/research/runner";
 import { parseResearchSnapshot, safeJsonParse } from "../../../../lib/research/snapshot";
+import { isLocalFixtureMode } from "../../../../lib/runtime/local-fixture";
 
 const tickerPattern = /^[A-Z][A-Z0-9.-]{0,9}$/;
 
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
     if (suppliedKey && suppliedKey.length > 200) return Response.json({ error: { code: "INVALID_IDEMPOTENCY_KEY", message: "幂等键过长", requestId } }, { status: 400 });
     const job = await enqueueResearch(context, { ticker, question, asOf, idempotencyKey: suppliedKey });
     await audit(request, context, "research.enqueue", "research_job", String(job?.id), { ticker, asOf });
-    waitUntil(runNextJobs(`request:${requestId}`, 1).catch((error) => console.error("background_research_failed", { requestId, error })));
+    if (!isLocalFixtureMode() || process.env.ALPHALENS_LOCAL_MANUAL_WORKER !== "true") waitUntil(runNextJobs(`request:${requestId}`, 1).catch((error) => console.error("background_research_failed", { requestId, error })));
     return Response.json({ data: normalizeJob(job), meta: { requestId, mode: "beta", pollAfterMs: 1500 } }, { status: 202, headers: { "cache-control": "no-store", location: `/api/v1/research/${job?.id}` } });
   } catch (error) { return apiError(error, requestId); }
 }

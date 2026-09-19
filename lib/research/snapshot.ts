@@ -22,6 +22,7 @@ export type ResearchSnapshotPlan = {
 
 export type ResearchSnapshot = {
   schemaVersion: 1;
+  sourceMode: "live" | "fixture";
   ticker: string;
   question: string;
   asOf: string;
@@ -93,6 +94,7 @@ export function parseResearchSnapshot(value: unknown): ResearchSnapshot | null {
 
   return {
     schemaVersion: 1,
+    sourceMode: value.sourceMode === "fixture" ? "fixture" : "live",
     ticker: string(value.ticker),
     question: string(value.question),
     asOf: string(value.asOf),

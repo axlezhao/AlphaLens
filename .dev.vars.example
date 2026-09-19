@@ -1,0 +1,8 @@
+# Copy this file to .dev.vars. It is deliberately local-only and contains no real credentials.
+ALPHALENS_LOCAL_DEVELOPMENT=true
+ALPHALENS_FIXTURE_MODE=true
+ALPHALENS_LOCAL_AUTH_EMAIL=developer@local.alphalens.invalid
+ALPHALENS_LOCAL_AUTH_NAME=Local Developer
+ALPHALENS_LOCAL_MANUAL_WORKER=true
+
+# Do not add SEC, market-data, LLM, mail or production secrets to this fixture setup.

@@ -23,6 +23,11 @@ test("research snapshot preserves source provenance and reports selected missing
   assert.deepEqual(missingCapabilities(parsed).map((plan) => plan.capability), ["market-quote"]);
 });
 
+test("fixture snapshots remain explicitly labelled instead of being presented as live sources", () => {
+  const parsed = parseResearchSnapshot({ ...snapshot, sourceMode: "fixture" });
+  assert.equal(parsed?.sourceMode, "fixture");
+});
+
 test("malformed persisted snapshot never becomes a live result", () => {
   assert.equal(parseResearchSnapshot({ ...snapshot, sources: [{ ...snapshot.sources[0], sourceUrl: "" }] }), null);
   assert.equal(safeJsonParse("not json"), null);

@@ -18,7 +18,7 @@ Originally built as a competition prototype, AlphaLens is now maintained by [axl
 - The landing research desk and thesis cards contain illustrative data, now visibly labelled as samples. A completed research job opens a separate result view with that job's actual provider snapshot, source URL, `as_of`, fetched time, freshness, missing capabilities and warnings; it does not replace the sample thesis cards or generate a thesis.
 - Research jobs collect provider snapshots. They do **not** currently call an external LLM or automatically produce a source-grounded investment thesis.
 - Multi-agent arbitration and quality scores are heuristic scaffolding, not calibrated investment confidence or a validated autonomous analyst system.
-- Database-backed use requires Cloudflare D1, migrations, a trusted authentication boundary, and worker scheduling. A fresh clone is not yet a self-contained multi-user backend.
+- A fresh clone can run a loopback-only, fixture-backed D1 workflow with a synthetic `.invalid` development identity. It is not a self-contained multi-user backend or a production authentication setup.
 
 [Hosted preview](https://alphalens-investment-os.tracyaxle.chatgpt.site) — existing deployment; access may require authentication or owner approval. Public source code does not imply public access to the hosted workspace. Deployment access is unchanged.
 
@@ -53,6 +53,16 @@ pnpm dev
 ```
 
 Open the local URL printed by the development server. The sample interface can be explored without paid market-data credentials. Authenticated research, persistence, and scheduled tasks need additional infrastructure; see [development boundaries](docs/DEVELOPMENT.md) and the [operations guide](docs/BETA_OPERATIONS_AND_DATA_GOVERNANCE.md). Do not use the example contact email for SEC requests.
+
+For a reproducible local database and research workflow with **synthetic data only**, use the [local fixture workflow](docs/LOCAL_FIXTURE_WORKFLOW.md):
+
+```bash
+cp .dev.vars.example .dev.vars
+pnpm db:local:migrate
+pnpm local:verify:e2e
+```
+
+This command starts a loopback-only server temporarily, creates/executes/queries/cancels fixture research jobs, then stops it. It does not call external Providers or require any market-data, model or production credentials.
 
 ## Verify a change
 
@@ -93,10 +103,9 @@ workbuddy-skill/     Optional workflow instruction bundle
 
 ## Next milestone
 
-1. Make a fresh-clone, isolated local workflow reproducible, including migrations and an explicit auth setup.
-2. Add end-to-end tenant/job tests and harden workflow recovery, outbound requests and deletion.
-3. Extend the result view into a reviewable evidence artifact with citation spans and explicit human review.
-4. Introduce a model adapter and measured research evaluation only after the evidence path is trustworthy.
+1. Add end-to-end tenant/job tests and harden workflow recovery, outbound requests and deletion.
+2. Extend the result view into a reviewable evidence artifact with citation spans and explicit human review.
+3. Introduce a model adapter and measured research evaluation only after the evidence path is trustworthy.
 
 [Public issue tracker](https://github.com/axlezhao/AlphaLens/issues) · [Detailed roadmap](docs/CAPABILITIES_AND_ROADMAP.md) · [Changelog](CHANGELOG.md)
 

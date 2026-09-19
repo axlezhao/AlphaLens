@@ -9,6 +9,7 @@ This file records delivered changes, not a guarantee that every integration is p
 - Added an actual research-result view for completed, failed and in-progress jobs. It renders only the persisted provider snapshot: source URL, fetched time, `as_of`, cache state, freshness, missing capabilities and warnings.
 - Added snapshot-schema parsing at the API/UI boundary and unit coverage that malformed persisted JSON cannot be presented as live research.
 - Labelled the landing desk and evidence graph as sample data, and removed the research overlay's unsupported claims of automated thesis, valuation and challenge generation.
+- Added an isolated local D1 fixture profile, loopback-only `.invalid` development identity, synthetic Provider snapshots and an end-to-end create/execute/query/cancel verification command. It uses no real Provider, LLM or production credentials.
 
 ### Documentation
 

@@ -2,7 +2,7 @@
 
 > 当前为独立开源项目的实验性 `0.5.0-beta`，不是已通过安全审计的生产服务。本文描述运行配置和机制，不能替代端到端验收。先读[开发边界](DEVELOPMENT.md)、[已知缺口](CAPABILITIES_AND_ROADMAP.md)与[安全政策](../SECURITY.md)。现有部署访问权限保持不变；不要复用原项目的 hosting 标识作为自己的部署配置。
 >
-> 研究 runner 目前收集快照而非生成论点；平台仲裁/质量评分是启发式实现。Workflow 的审批恢复、发布节点、并发限制与失败终态仍需完善，Webhook Outbox 中断恢复和出站请求防护也需加固。当前没有可直接替换为普通公网 Node 服务的独立认证方案。
+> 研究 runner 目前收集快照而非生成论点；平台仲裁/质量评分是启发式实现。Workflow 的审批恢复、发布节点、并发限制与失败终态仍需完善，Webhook Outbox 中断恢复和出站请求防护也需加固。本仓库现有 loopback-only fixture 身份和本地 D1 开发路径，但没有可直接替换为普通公网 Node 服务的独立生产认证方案。
 
 ## 1. Beta 运行链路
 
@@ -87,6 +87,10 @@ SEC 在单 Worker 内限制为每 125ms 一次（8 req/s，低于公开的 10 re
 - Webhook Subscription 使用 AES-GCM 保存签名密钥；Delivery 按 subscription + event 幂等并最多尝试八次。
 
 ## 6. 运维配置
+
+### 6.0 本地 fixture profile（开发专用）
+
+本地复现不使用以上真实凭据。复制 `.dev.vars.example` 为未提交的 `.dev.vars`，运行 `pnpm db:local:migrate` 后使用 `pnpm dev:local` 或 `pnpm local:verify:e2e`。Fixture profile 必须由双显式开关、loopback 来源和 `.invalid` 邮箱同时满足；它生成合成来源并标记 `sourceMode: fixture`。不允许在部署、Tunnel 或公网绑定中使用。完整步骤见[本地 Fixture 工作流](LOCAL_FIXTURE_WORKFLOW.md)。
 
 必需环境变量：
 

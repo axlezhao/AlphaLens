@@ -540,7 +540,7 @@ Settings            Workspace、成员、权限、预算、审计、删除
 
 ### Phase 1：真实证据闭环
 
-- Research UI 渲染实际 snapshot/source/warning；
+- Research UI 渲染实际 snapshot/source/warning；**已完成核心 UI：任务结果页展示来源 URL、抓取时间、`as_of`、缓存、新鲜/陈旧、缺失能力和警告；真实环境验收仍待 A2/A3。**
 - 新建 artifact 草稿、引用 span、验证 issue 和 diff；
 - fixture-backed 本地数据库和研究任务；
 - 两租户集成测试与任务终态测试。

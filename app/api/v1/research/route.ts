@@ -2,6 +2,7 @@ import { waitUntil } from "cloudflare:workers";
 import { apiError, audit, requireApiContext } from "../../../../lib/auth/context";
 import { enqueueResearch } from "../../../../lib/research/queue";
 import { runNextJobs } from "../../../../lib/research/runner";
+import { parseResearchSnapshot, safeJsonParse } from "../../../../lib/research/snapshot";
 
 const tickerPattern = /^[A-Z][A-Z0-9.-]{0,9}$/;
 
@@ -24,4 +25,8 @@ export async function POST(request: Request) {
   } catch (error) { return apiError(error, requestId); }
 }
 
-function normalizeJob(job: Record<string, unknown> | null) { return job ? { ...job, snapshot: typeof job.snapshotJson === "string" ? JSON.parse(job.snapshotJson) : null, snapshotJson: undefined } : null; }
+function normalizeJob(job: Record<string, unknown> | null) {
+  if (!job) return null;
+  const snapshot = parseResearchSnapshot(safeJsonParse(job.snapshotJson));
+  return { ...job, snapshot, snapshotJson: undefined };
+}

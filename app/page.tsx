@@ -1,13 +1,15 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { researchIdempotencyKey } from "../lib/research/idempotency";
+import { parseResearchSnapshot } from "../lib/research/snapshot";
 import PersonalWorkbench from "./workbench";
 import PortfolioWorkbench from "./portfolio";
 import ResearchPlatform from "./platform";
+import ResearchResult, { type ResearchResultJob } from "./research-result";
 
 type Ticker = "NVDA" | "MSFT" | "AMZN";
-type View = "desk" | "workbench" | "portfolio" | "platform" | "thesis" | "scenario" | "evidence";
+type View = "desk" | "workbench" | "portfolio" | "platform" | "thesis" | "scenario" | "evidence" | "result";
 
 const stocks: Record<Ticker, {
   name: string; price: number; change: number; status: string; readiness: number;
@@ -67,6 +69,7 @@ export default function Home() {
   const [revenue, setRevenue] = useState(stocks.NVDA.revenue);
   const [multiple, setMultiple] = useState(stocks.NVDA.multiple);
   const [filter, setFilter] = useState("ALL");
+  const [latestJob, setLatestJob] = useState<ResearchResultJob | null>(null);
   const stock = stocks[ticker];
 
   const scenarioPrice = useMemo(() => {
@@ -76,6 +79,39 @@ export default function Home() {
   }, [multiple, revenue, stock]);
 
   const upside = Math.round(((scenarioPrice / stock.price) - 1) * 100);
+
+  useEffect(() => {
+    const jobId = new URLSearchParams(window.location.search).get("job");
+    if (!jobId) return;
+    let disposed = false;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/v1/research/${encodeURIComponent(jobId)}`, { cache: "no-store" });
+        const payload = await response.json() as { data?: Record<string, unknown> };
+        const job = response.ok ? asResearchResultJob(payload.data) : null;
+        if (!disposed && job) {
+          setLatestJob(job);
+          setView("result");
+        }
+      } catch { /* The normal research desk remains available if a saved job cannot be loaded. */ }
+    })();
+    return () => { disposed = true; };
+  }, []);
+
+  function openResearchResult(job: ResearchResultJob) {
+    setLatestJob(job);
+    setView("result");
+    const url = new URL(window.location.href);
+    url.searchParams.set("job", job.id);
+    window.history.replaceState(null, "", url);
+  }
+
+  function returnToDesk() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("job");
+    window.history.replaceState(null, "", url);
+    setView("desk");
+  }
 
   function chooseTicker(next: Ticker) {
     setTicker(next);
@@ -95,12 +131,17 @@ export default function Home() {
       const asOf = new Date().toISOString();
       const idempotencyKey = await researchIdempotencyKey({ ticker: selectedTicker, question, asOfDate: asOf.slice(0, 10) });
       const response = await fetch("/api/v1/research", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": idempotencyKey }, body: JSON.stringify({ ticker: selectedTicker, question, asOf }) });
-      const payload = await response.json() as { data?: { id: string; status: string }; error?: { message: string } };
+      const payload = await response.json() as { data?: Record<string, unknown>; error?: { message: string } };
       if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? "研究任务创建失败");
-      setToast(`研究任务已进入队列 · ${payload.data.id.slice(-8)}`);
-      const final = await pollJob(payload.data.id);
-      setView("thesis");
-      setToast(final === "succeeded" ? "研究完成：证据快照已保存" : final === "queued" || final === "running" ? "研究正在后台执行，可稍后查看任务状态" : `研究任务状态：${final}`);
+      const created = asResearchResultJob(payload.data);
+      if (!created) throw new Error("研究服务返回了无效任务数据");
+      setLatestJob(created);
+      setToast(`研究任务已进入队列 · ${created.id.slice(-8)}`);
+      const final = await pollJob(created.id, created);
+      if (final) {
+        openResearchResult(final);
+      }
+      setToast(final?.status === "succeeded" ? "研究完成：真实来源快照已保存" : final?.status === "queued" || final?.status === "running" ? "研究正在后台执行，可稍后查看任务状态" : `研究任务状态：${final?.status ?? "未知"}`);
     } catch (error) {
       setToast(error instanceof Error ? error.message : "研究服务暂时不可用");
     } finally {
@@ -109,16 +150,19 @@ export default function Home() {
     }
   }
 
-  async function pollJob(jobId: string) {
+  async function pollJob(jobId: string, initialJob: ResearchResultJob): Promise<ResearchResultJob> {
+    let latest = initialJob;
     for (let attempt = 0; attempt < 10; attempt++) {
       await new Promise((resolve) => window.setTimeout(resolve, 1500));
       const response = await fetch(`/api/v1/research/${jobId}`, { cache: "no-store" });
       if (!response.ok) break;
-      const payload = await response.json() as { data?: { status?: string } };
-      const status = payload.data?.status ?? "queued";
-      if (["succeeded", "failed", "cancelled"].includes(status)) return status;
+      const payload = await response.json() as { data?: Record<string, unknown> };
+      const job = asResearchResultJob(payload.data);
+      if (!job) break;
+      latest = job;
+      if (["succeeded", "failed", "cancelled"].includes(job.status)) return job;
     }
-    return "queued";
+    return latest;
   }
 
   return (
@@ -162,19 +206,21 @@ export default function Home() {
         </header>
 
         <div className="content">
-          <div className="eyebrow"><span>ALPHALENS / {view.toUpperCase()}</span><span>数据截至 2026.07.17 · 16:00 ET</span></div>
+          <div className="eyebrow"><span>ALPHALENS / {view.toUpperCase()}</span><span>{view === "result" && latestJob ? `任务 as_of ${latestJob.asOf}` : "示例工作台 · 非实时市场数据"}</span></div>
 
           {view === "desk" && <Desk stock={stock} ticker={ticker} setView={setView} />}
           {view === "workbench" && <PersonalWorkbench ticker={ticker} />}
           {view === "portfolio" && <PortfolioWorkbench />}
           {view === "platform" && <ResearchPlatform />}
+          {view === "result" && latestJob && <ResearchResult job={latestJob} onBack={returnToDesk} />}
+          {view === "result" && !latestJob && <EmptyResearchResult onBack={returnToDesk} />}
           {view === "thesis" && <Thesis stock={stock} ticker={ticker} setView={setView} />}
           {view === "scenario" && <Scenario stock={stock} ticker={ticker} revenue={revenue} multiple={multiple} scenarioPrice={scenarioPrice} upside={upside} setRevenue={setRevenue} setMultiple={setMultiple} />}
           {view === "evidence" && <Evidence filter={filter} setFilter={setFilter} />}
         </div>
       </section>
 
-      {researching && <div className="research-overlay" role="status" aria-live="polite"><div className="research-card"><div className="scan-line" /><span className="ai-orb">✦</span><h2>正在构建投资论点</h2><p>检索 SEC 文件、公司材料、市场预期与行业信号</p><ol><li className="done">识别证券与研究意图</li><li className="done">核验权威来源</li><li className="active-step">提取 KPI 与关键分歧</li><li>生成情景估值与反方审查</li></ol></div></div>}
+      {researching && <div className="research-overlay" role="status" aria-live="polite"><div className="research-card"><div className="scan-line" /><span className="ai-orb">✦</span><h2>正在采集研究证据</h2><p>检索已配置的 SEC、公司 IR、行情与市场预期来源；本步骤不生成自动投资结论。</p><ol><li className="done">识别证券与研究问题</li><li className="done">建立 Provider 路由</li><li className="active-step">抓取并保存来源快照</li><li>记录新鲜度、缺口与运行警告</li></ol></div></div>}
       {toast && <div className="toast" role="status">✓ {toast}</div>}
     </main>
   );
@@ -196,7 +242,7 @@ function Desk({ stock, ticker, setView }: { stock: typeof stocks.NVDA; ticker: T
 
     <section className="dashboard-grid">
       <article className="panel thesis-preview">
-        <div className="panel-head"><div><span className="live-dot" />重点论点</div><button onClick={() => setView("thesis")}>查看完整论点 →</button></div>
+        <div className="panel-head"><div><span className="sample-chip">示例</span>重点论点</div><button onClick={() => setView("thesis")}>查看示例论点 →</button></div>
         <div className="stock-head"><div className="stock-symbol">N</div><div><span>{ticker} · NASDAQ</span><h2>{stock.name}</h2></div><div className="quote"><strong>${stock.price}</strong><span className={stock.change >= 0 ? "price-up" : "price-down"}>{stock.change >= 0 ? "+" : ""}{stock.change}%</span></div></div>
         <div className="status-row"><span className="status-chip">{stock.status}</span><span>目标价 <strong>${stock.target}</strong></span><span>潜在空间 <strong className="good">+{Math.round((stock.target / stock.price - 1) * 100)}%</strong></span></div>
         <blockquote>“{stock.thesis}”</blockquote>
@@ -211,7 +257,7 @@ function Desk({ stock, ticker, setView }: { stock: typeof stocks.NVDA; ticker: T
       </article>
     </section>
 
-    <section className="panel signal-feed"><div className="panel-head"><div>实时证据信号 <span className="count">24</span></div><button onClick={() => setView("evidence")}>进入证据库 →</button></div><div className="signal-row">{evidence.slice(0, 3).map((item) => <article key={item.title}><span className={`type ${item.tone}`}>{item.type}</span><h3>{item.title}</h3><p>{item.source}</p><time>{item.time}</time></article>)}</div></section>
+    <section className="panel signal-feed"><div className="panel-head"><div><span className="sample-chip">示例</span>证据信号 <span className="count">24</span></div><button onClick={() => setView("evidence")}>查看示例库 →</button></div><div className="signal-row">{evidence.slice(0, 3).map((item) => <article key={item.title}><span className={`type ${item.tone}`}>{item.type}</span><h3>{item.title}</h3><p>{item.source}</p><time>{item.time}</time></article>)}</div></section>
   </>;
 }
 
@@ -240,8 +286,28 @@ function Scenario({ stock, ticker, revenue, multiple, scenarioPrice, upside, set
 function Evidence({ filter, setFilter }: { filter: string; setFilter: (v: string) => void }) {
   const visible = filter === "ALL" ? evidence : evidence.filter((item) => item.type === filter);
   return <>
-    <section className="page-title"><div><p className="section-kicker">EVIDENCE GRAPH</p><h1>每一个判断，<em>都能回到原始证据。</em></h1><p>事实、预期、推断与风险严格分层，避免把观点包装成事实。</p></div><div className="source-health"><span>来源健康度</span><strong>98.7%</strong><small>24 / 25 在线</small></div></section>
+    <section className="page-title"><div><p className="section-kicker">EVIDENCE GRAPH / SAMPLE</p><h1>每一个判断，<em>都应回到原始证据。</em></h1><p>以下为界面示例，不代表当前来源健康度或真实研究结果。</p></div><div className="source-health"><span>示例来源健康度</span><strong>98.7%</strong><small>示意：24 / 25 在线</small></div></section>
     <section className="evidence-toolbar"><div>{["ALL", "FACT", "EXPECTATION", "RISK"].map(f => <button key={f} className={filter === f ? "active" : ""} onClick={() => setFilter(f)}>{f === "ALL" ? "全部证据" : f}</button>)}</div><span>共 24 条 · 6 条已交叉核验</span></section>
     <section className="evidence-layout"><div className="evidence-list">{visible.map((item, index) => <article className="panel evidence-card" key={item.title}><div className="evidence-index">E-{String(index + 1).padStart(3, "0")}</div><div><div className="evidence-top"><span className={`type ${item.tone}`}>{item.type}</span><time>{item.time}</time></div><h2>{item.title}</h2><blockquote>“{item.quote}”</blockquote><div className="source-row"><span>↗ {item.source}</span><span>可信度 <strong>{96 - index * 3}%</strong></span><span>交叉核验 <strong>{index < 3 ? "2 个来源" : "待补充"}</strong></span></div></div></article>)}</div><aside className="panel provenance"><div className="panel-head"><div>证据分层</div><span>PROVENANCE</span></div><div className="provenance-score"><strong>94</strong><span>/100</span><p>整体证据质量</p></div><dl><div><dt>监管文件 / 公司 IR</dt><dd>12</dd></div><div><dt>市场数据与预期</dt><dd>7</dd></div><div><dt>可信媒体</dt><dd>4</dd></div><div><dt>Agent 推断</dt><dd>1</dd></div></dl><div className="rule"><strong>证据规则</strong><p>关键财务数字至少需要一个权威来源；重大结论至少需要两个独立来源交叉核验。</p></div></aside></section>
   </>;
+}
+
+function asResearchResultJob(value: Record<string, unknown> | undefined): ResearchResultJob | null {
+  if (!value || typeof value.id !== "string" || typeof value.ticker !== "string" || typeof value.question !== "string" || typeof value.asOf !== "string") return null;
+  const status = value.status;
+  if (status !== "queued" && status !== "running" && status !== "succeeded" && status !== "failed" && status !== "cancelled") return null;
+  return {
+    id: value.id, ticker: value.ticker, question: value.question, asOf: value.asOf, status,
+    snapshot: parseResearchSnapshot(value.snapshot),
+    createdAt: typeof value.createdAt === "string" ? value.createdAt : undefined,
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : undefined,
+    attempts: typeof value.attempts === "number" ? value.attempts : undefined,
+    maxAttempts: typeof value.maxAttempts === "number" ? value.maxAttempts : undefined,
+    errorCode: typeof value.errorCode === "string" ? value.errorCode : null,
+    errorMessage: typeof value.errorMessage === "string" ? value.errorMessage : null,
+  };
+}
+
+function EmptyResearchResult({ onBack }: { onBack: () => void }) {
+  return <section className="panel result-exception"><h2>尚未选择研究任务</h2><p>从顶部发起研究后，AlphaLens 会在任务终态打开实际来源快照；示例论点不会替代任务结果。</p><button className="outline-button" onClick={onBack}>返回研究台</button></section>;
 }

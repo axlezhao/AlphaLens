@@ -4,6 +4,12 @@ This file records delivered changes, not a guarantee that every integration is p
 
 ## Unreleased
 
+### Added
+
+- Added an actual research-result view for completed, failed and in-progress jobs. It renders only the persisted provider snapshot: source URL, fetched time, `as_of`, cache state, freshness, missing capabilities and warnings.
+- Added snapshot-schema parsing at the API/UI boundary and unit coverage that malformed persisted JSON cannot be presented as live research.
+- Labelled the landing desk and evidence graph as sample data, and removed the research overlay's unsupported claims of automated thesis, valuation and challenge generation.
+
 ### Documentation
 
 - Added a detailed independent-platform architecture plan covering a DeepSeek-first provider-neutral LLM gateway, per-Workspace BYOK security, evidence-to-artifact research workflow, MCP integration, evaluation and staged delivery gates.

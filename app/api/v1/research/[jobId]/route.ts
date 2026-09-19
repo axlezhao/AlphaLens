@@ -1,5 +1,6 @@
 import { apiError, audit, requireApiContext } from "../../../../../lib/auth/context";
 import { cancelJob, getJob } from "../../../../../lib/research/queue";
+import { parseResearchSnapshot, safeJsonParse } from "../../../../../lib/research/snapshot";
 
 export async function GET(request: Request, { params }: { params: Promise<{ jobId: string }> }) {
   const requestId = crypto.randomUUID();
@@ -24,4 +25,6 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ j
   } catch (error) { return apiError(error, requestId); }
 }
 
-function normalize(job: Record<string, unknown>) { return { ...job, snapshot: typeof job.snapshotJson === "string" ? JSON.parse(job.snapshotJson) : null, snapshotJson: undefined }; }
+function normalize(job: Record<string, unknown>) {
+  return { ...job, snapshot: parseResearchSnapshot(safeJsonParse(job.snapshotJson)), snapshotJson: undefined };
+}

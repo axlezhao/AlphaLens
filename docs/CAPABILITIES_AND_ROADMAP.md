@@ -10,7 +10,7 @@
 
 | 模块 | 当前实现 | 主要代码 | 验证边界 |
 | --- | --- | --- | --- |
-| 界面 | 研究台、论点、情景、证据与工作台/组合/平台页面 | `app/` | 首页主要使用示例卡片，研究完成后的卡片仍非生成结果 |
+| 界面 | 研究台、论点、情景、证据与工作台/组合/平台页面；研究任务真实来源结果页 | `app/` | 首页仍主要使用示例卡片；结果页展示 snapshot，不是自动生成的研究论点 |
 | 数据接入 | SEC、获准 IR Feed、Alpha Vantage 行情/预期、缓存/重试/熔断 | `lib/providers/` | 合法凭据与 Feed 配置必需；契约测试非实时连通测试 |
 | 持久化 | 59 张领域表、版本、幂等键、`as_of` 和审计 | `db/`, `drizzle/` | 需要 D1 迁移；缺少完整数据库集成测试 |
 | 身份与权限 | 可信平台身份头、Workspace RBAC、API Key scope | `lib/auth/`, `lib/platform/` | 依赖可信入口；不可把用户自报身份头当作安全登录 |
@@ -37,11 +37,11 @@
 
 ## 3. 下一阶段：先完成可信研究闭环
 
-公开追踪：[A1 真实结果展示 #1](https://github.com/axlezhao/AlphaLens/issues/1) · [A2 本地可复现 #2](https://github.com/axlezhao/AlphaLens/issues/2) · [A3 隔离与恢复测试 #3](https://github.com/axlezhao/AlphaLens/issues/3) · [A4 Workflow 生命周期 #4](https://github.com/axlezhao/AlphaLens/issues/4)。B1/B2 在基础闭环完成后再细化，不提前承诺完成日期。
+公开追踪：[A1 真实结果展示 #1](https://github.com/axlezhao/AlphaLens/issues/1)（核心 UI 已实现，待真实环境验收）· [A2 本地可复现 #2](https://github.com/axlezhao/AlphaLens/issues/2) · [A3 隔离与恢复测试 #3](https://github.com/axlezhao/AlphaLens/issues/3) · [A4 Workflow 生命周期 #4](https://github.com/axlezhao/AlphaLens/issues/4)。B1/B2 在基础闭环完成后再细化，不提前承诺完成日期。
 
 | 优先级 | 交付项 | 验收标准 |
 | --- | --- | --- |
-| A1 | 真实研究结果 UI | 完成任务后读取实际 snapshot；展示 source URL、`fetchedAt`/`as_of`、缺失与 stale；示例数据有明确标签；失败不能展示为成功研究 |
+| A1 | 真实研究结果 UI | **核心实现已完成**：完成任务后读取实际 snapshot，展示 source URL、`fetchedAt`/`as_of`、缓存、新鲜/陈旧、缺失与警告；示例数据有明确标签；失败或无 snapshot 不会展示为成功研究。仍需在真实 D1/Provider 环境做验收。 |
 | A2 | 可重复本地开发 | 空目录克隆后按文档初始化隔离数据库，测试身份仅限本地；创建/查询/取消一个 fixture 研究任务；无需生产密钥 |
 | A3 | 安全与任务集成测试 | 两租户访问隔离、API scopes、重试/租约失效/取消、通知/Webhook 崩溃恢复、删除完成均有可重跑测试 |
 | A4 | Workflow 生命周期 | 审批暂停/恢复、publish、并发限制、依赖失败策略和最终状态均经测试；不留永久 running 的任务 |

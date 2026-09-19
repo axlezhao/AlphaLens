@@ -15,7 +15,7 @@ Originally built as a competition prototype, AlphaLens is now maintained by [axl
 
 **Experimental beta — `0.5.0-beta`, not production-ready.** The repository contains a working interface, domain services, provider adapters, and deterministic calculations. Breadth of implementation is not the same as end-to-end validation.
 
-- The landing research desk and thesis cards contain illustrative data; completing a research job does not yet replace those cards with generated research.
+- The landing research desk and thesis cards contain illustrative data, now visibly labelled as samples. A completed research job opens a separate result view with that job's actual provider snapshot, source URL, `as_of`, fetched time, freshness, missing capabilities and warnings; it does not replace the sample thesis cards or generate a thesis.
 - Research jobs collect provider snapshots. They do **not** currently call an external LLM or automatically produce a source-grounded investment thesis.
 - Multi-agent arbitration and quality scores are heuristic scaffolding, not calibrated investment confidence or a validated autonomous analyst system.
 - Database-backed use requires Cloudflare D1, migrations, a trusted authentication boundary, and worker scheduling. A fresh clone is not yet a self-contained multi-user backend.
@@ -29,7 +29,7 @@ Originally built as a competition prototype, AlphaLens is now maintained by [axl
 | Area | Implemented foundation | Important boundary |
 | --- | --- | --- |
 | Data and evidence | SEC EDGAR, approved issuer IR feeds, Alpha Vantage adapters; caching, retries, freshness metadata | Credentials, provider permissions, and data availability are deployment-dependent; per-instance SEC throttling is not a global rate limit |
-| Research jobs | D1-backed queue, idempotency, events, versioned evidence and snapshots | Snapshot collection, not automated thesis generation; historical `as_of` does not guarantee point-in-time source retrieval |
+| Research jobs | D1-backed queue, idempotency, events, versioned evidence and snapshots; actual result/provenance view | Snapshot collection, not automated thesis generation; historical `as_of` does not guarantee point-in-time source retrieval |
 | Personal workbench | Watchlists, thesis versions, falsifiers, earnings job types, export and notification adapters | Backend/auth configuration required; delivery and external integrations need live validation |
 | Portfolio tools | Exposure, concentration, imported-return correlation, scenario stress and action conditions | Results depend on user inputs and simplified models; no brokerage or execution integration |
 | Platform experiments | Workflow definitions, KPI/skill registries, review/publish APIs, scoped API keys and webhook outbox | Workflow lifecycle, skill isolation, failover, security and end-to-end coverage need hardening |
@@ -93,9 +93,9 @@ workbuddy-skill/     Optional workflow instruction bundle
 
 ## Next milestone
 
-1. Render a completed job's actual evidence and warnings, clearly separating sample, live, stale and missing data.
-2. Make a fresh-clone, isolated local workflow reproducible, including migrations and an explicit auth setup.
-3. Add end-to-end tenant/job tests and harden workflow recovery, outbound requests and deletion.
+1. Make a fresh-clone, isolated local workflow reproducible, including migrations and an explicit auth setup.
+2. Add end-to-end tenant/job tests and harden workflow recovery, outbound requests and deletion.
+3. Extend the result view into a reviewable evidence artifact with citation spans and explicit human review.
 4. Introduce a model adapter and measured research evaluation only after the evidence path is trustworthy.
 
 [Public issue tracker](https://github.com/axlezhao/AlphaLens/issues) · [Detailed roadmap](docs/CAPABILITIES_AND_ROADMAP.md) · [Changelog](CHANGELOG.md)

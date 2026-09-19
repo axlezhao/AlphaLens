@@ -16,6 +16,8 @@ test("renders the AlphaLens investment workspace", async () => {
   assert.match(html, /<title>AlphaLens \| 美股投资论点与辅助决策系统<\/title>/i);
   assert.match(html, /AlphaLens/);
   assert.match(html, /先看证据/);
+  assert.match(html, /示例工作台 · 非实时市场数据/);
+  assert.match(html, /查看示例论点/);
   assert.match(html, /研究与学习用途/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });

@@ -42,7 +42,7 @@ Fixture authentication is an explicit and deliberately narrow development seam: 
 
 See [operations](BETA_OPERATIONS_AND_DATA_GOVERNANCE.md) for binding, variable and endpoint details. The existing `.openai/hosting.json` identifies the original hosted project; it is not a portable deployment credential or an instruction to reuse that project. The placeholder database ID in `vite.config.ts` is not a production database.
 
-There is a verified fixture-backed local bootstrap flow, but there is not yet a standalone multi-user self-hosted authentication flow. Do not work around this by trusting identity headers from a browser. Keep development services bound to your local machine and use isolated data. A3.2 has delivered request-level Workspace RBAC, member administration, and atomic controlling-owner transfer (the target must already be a member of the Workspace); tenant recovery, deletion execution and webhook/notification crash recovery remain [the next milestone](CAPABILITIES_AND_ROADMAP.md).
+There is a verified fixture-backed local bootstrap flow, but there is not yet a standalone multi-user self-hosted authentication flow. Do not work around this by trusting identity headers from a browser. Keep development services bound to your local machine and use isolated data. A3.2 delivered request-level Workspace RBAC, member administration, and atomic controlling-owner transfer; A3.3 delivered the recoverable research-job state machine, the at-least-once webhook/notification outbox, and the safe background account-deletion workflow. A managed queue host, production OAuth/SSO and monitoring/alerting remain [the next milestone](CAPABILITIES_AND_ROADMAP.md).
 
 ## Checks
 
@@ -59,7 +59,7 @@ The GitHub Actions workflow installs the frozen lockfile, runs lint/type checks,
 
 `pnpm local:verify:e2e` is an explicit local acceptance command because it launches a loopback Worker and D1 emulator. It has been manually validated against all five checked-in migrations; it never performs a remote database operation.
 
-`pnpm db:local:verify-integrity` applies every migration to a fresh temporary local D1 state, then verifies that invalid member roles, cross-workspace research/portfolio records and ownership transfer to a non-member are rejected at the database boundary. It creates no remote database and requires no `.dev.vars` or Provider credentials. It validates selected core relations, not every API authorization path; A3.2 request-level RBAC, member administration, ownership transfer and dual-tenant HTTP tests live in the unit suite (`tests/workspace-access.test.ts`, `tests/tenant-isolation.test.ts`, `tests/ownership-transfer.test.ts`).
+`pnpm db:local:verify-integrity` applies every migration to a fresh temporary local D1 state, then verifies that invalid member roles, cross-workspace research/portfolio records and ownership transfer to a non-member are rejected at the database boundary. It creates no remote database and requires no `.dev.vars` or Provider credentials. It validates selected core relations, not every API authorization path; A3.2 request-level RBAC, member administration, ownership transfer and dual-tenant HTTP tests live in the unit suite (`tests/workspace-access.test.ts`, `tests/tenant-isolation.test.ts`, `tests/ownership-transfer.test.ts`), and A3.3 reliability tests live in `tests/research-job-reliability.test.ts`, `tests/outbox-reliability.test.ts` and `tests/account-deletion.test.ts`.
 
 ## Schema changes
 

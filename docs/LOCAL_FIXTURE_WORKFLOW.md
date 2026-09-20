@@ -63,7 +63,7 @@ pnpm local:verify:e2e
 pnpm db:local:verify-integrity
 ```
 
-该检查会打印临时状态目录，便于排错；其中只包含合成测试记录。它是 A3.1 的数据库完整性验证。A3.2 的双租户请求级越权测试已纳入 `tests/tenant-isolation.test.ts`、`tests/workspace-access.test.ts` 与 `tests/ownership-transfer.test.ts`，覆盖全部 18 条路由的 401/403/404 矩阵、`x-alphalens-workspace` 选择、成员管理 API、控制性 Owner 原子转移与脱敏审计持久化。
+该检查会打印临时状态目录，便于排错；其中只包含合成测试记录。它是 A3.1 的数据库完整性验证。A3.2 的双租户请求级越权测试已纳入 `tests/tenant-isolation.test.ts`、`tests/workspace-access.test.ts` 与 `tests/ownership-transfer.test.ts`，覆盖全部 18 条路由的 401/403/404 矩阵、`x-alphalens-workspace` 选择、成员管理 API、控制性 Owner 原子转移与脱敏审计持久化。A3.3 的可恢复研究任务状态机、at-least-once Outbox 与账户删除生命周期测试在 `tests/research-job-reliability.test.ts`、`tests/outbox-reliability.test.ts`、`tests/account-deletion.test.ts`。
 
 ## 清理与边界
 

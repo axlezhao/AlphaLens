@@ -2,7 +2,7 @@
 
 > 当前为独立开源项目的实验性 `0.5.0-beta`，不是已通过安全审计的生产服务。本文描述运行配置和机制，不能替代端到端验收。先读[开发边界](DEVELOPMENT.md)、[已知缺口](CAPABILITIES_AND_ROADMAP.md)与[安全政策](../SECURITY.md)。现有部署访问权限保持不变；不要复用原项目的 hosting 标识作为自己的部署配置。
 >
-> 研究 runner 目前收集快照而非生成论点；平台仲裁/质量评分是启发式实现。Workflow 的审批恢复、发布节点、并发限制与失败终态仍需完善，Webhook Outbox 中断恢复和出站请求防护也需加固。本仓库现有 loopback-only fixture 身份和本地 D1 开发路径，但没有可直接替换为普通公网 Node 服务的独立生产认证方案。A3.2 已交付请求级 Workspace RBAC（`requireWorkspaceAccess` / `requirePortfolioAccess` / `listAccessibleWorkspaces` 统一 401/403/404，跨租户资源 ID 返回与缺失相同的 404，成员管理 API 写脱敏审计）、原子化控制性 Owner 转移（目标须为已有成员），以及双租户 HTTP 集成测试；A3.3 队列失败恢复、删除实际执行与生产认证尚未完成。
+> 研究 runner 目前收集快照而非生成论点；平台仲裁/质量评分是启发式实现。Workflow 的审批恢复、发布节点、并发限制与失败终态仍需完善。本仓库现有 loopback-only fixture 身份和本地 D1 开发路径，但没有可直接替换为普通公网 Node 服务的独立生产认证方案。A3.2 已交付请求级 Workspace RBAC（`requireWorkspaceAccess` / `requirePortfolioAccess` / `listAccessibleWorkspaces` 统一 401/403/404，跨租户资源 ID 返回与缺失相同的 404，成员管理 API 写脱敏审计）、原子化控制性 Owner 转移（目标须为已有成员），以及双租户 HTTP 集成测试。A3.3 已交付可恢复研究任务状态机、at-least-once 的 Webhook/通知 Outbox（含防 SSRF URL 校验与 dead-letter）与安全账户删除（确认门 + controlling-owner 前置 + 后台软删除）。仍未完成：托管队列托管、生产 OAuth/SSO、监控告警、Webhook 崩溃恢复与合规审批的数据保留策略。
 
 ## 1. Beta 运行链路
 

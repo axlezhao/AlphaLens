@@ -13,7 +13,7 @@ AlphaLens 是由 [axlezhao](https://github.com/axlezhao) 维护的个人开源�
 - 首页研究台、论点卡包含示例数据，并已明确标注；研究任务完成后会进入独立结果页，展示该任务实际保存的来源、URL、`as_of`、抓取时间、新鲜度、缺口和警告，但不会替换示例论点卡或自动生成论点。
 - 异步研究任务目前收集数据源快照，不调用外部 LLM，也不会自动生成有证据支撑的投资论点。
 - 多 Agent 仲裁和质量评分是启发式实验，不代表经校准的投资置信度。
-- 新克隆可运行仅限 loopback 的 fixture D1 工作流与 `.invalid` 开发身份；D1 迁移已对核心研究/组合的跨 Workspace 引用做完整性拦截并可在本地验证。请求级 Workspace RBAC（`requireWorkspaceAccess` / `requirePortfolioAccess`）统一了所有路由的 401/403/404，双租户 HTTP 测试覆盖完整权限矩阵，成员管理 API 与安全的控制性 Owner 转移端点（目标必须是已有成员）补全了多租户模型。这仍不等于生产级认证（OAuth/SSO）。
+- 新克隆可运行仅限 loopback 的 fixture D1 工作流与 `.invalid` 开发身份；D1 迁移已对核心研究/组合的跨 Workspace 引用做完整性拦截并可在本地验证。请求级 Workspace RBAC（`requireWorkspaceAccess` / `requirePortfolioAccess`）统一了所有路由的 401/403/404，双租户 HTTP 测试覆盖完整权限矩阵，成员管理 API 与安全的控制性 Owner 转移端点（目标必须是已有成员）补全了多租户模型。研究任务经可恢复状态机执行（原子 lease 领取、有限重试与退避、lease 回收），通知/Webhook 经 at-least-once Outbox 投递。这仍不等于生产级认证（OAuth/SSO）。
 
 [在线预览](https://alphalens-investment-os.tracyaxle.chatgpt.site)可能要求登录或所有者授权。仓库公开不代表在线 Workspace 公开；本次整理未改变部署访问权限。
 
@@ -74,7 +74,7 @@ pnpm db:local:verify-integrity
 
 下一阶段优先级：
 
-1. 在 D1 租户完整性基础上补齐请求级授权/任务恢复端到端测试，加固出站请求、删除流程及 Workflow 生命周期。A3.2 已交付请求级 RBAC（`requireWorkspaceAccess` / `requirePortfolioAccess` / `listAccessibleWorkspaces`）、全部路由的双租户 HTTP 测试、成员管理 API，以及原子化的控制性 Owner 转移（目标须为已有成员）；剩余 A3.3 是队列失败恢复、删除执行与 Webhook/通知崩溃恢复。
+1. 加固出站请求、删除流程及 Workflow 生命周期。A3.2 已交付请求级 RBAC（`requireWorkspaceAccess` / `requirePortfolioAccess` / `listAccessibleWorkspaces`）、全部路由的双租户 HTTP 测试、成员管理 API，以及原子化的控制性 Owner 转移（目标须为已有成员）。A3.3 已交付可恢复的研究任务状态机（原子 lease 领取、有限重试、lease 回收）、at-least-once 的 Webhook/通知 Outbox（含防 SSRF 的 URL 校验），以及安全的账户删除后台工作流。仍未完成：托管队列、生产 OAuth/SSO、监控告警、合规审批的数据保留策略。
 2. 将结果页扩展为可引用的研究草稿与人工 Review 流程。
 3. 再接模型、构建真实评估集，验证自动研究的质量。
 

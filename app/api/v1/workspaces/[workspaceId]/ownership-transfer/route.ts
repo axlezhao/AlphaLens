@@ -27,6 +27,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ wor
     const workspace = await db.prepare("SELECT owner_user_id AS ownerUserId FROM workspaces WHERE id=?").bind(context.workspaceId).first<{ ownerUserId: string }>();
     if (!workspace) throw new HttpError(404, "WORKSPACE_NOT_FOUND", "Workspace 不存在");
 
+    // Only the current controlling owner may transfer ownership. A former
+    // controlling owner keeps the `owner` role after a transfer, so the role
+    // check alone is insufficient — we must compare against `owner_user_id`.
+    if (workspace.ownerUserId !== context.userId) {
+      throw new HttpError(403, "CONTROLLING_OWNER_REQUIRED", "仅当前控制性 Owner 可转移 Workspace 所有权");
+    }
+
     if (workspace.ownerUserId === targetUserId) {
       throw new HttpError(409, "ALREADY_CONTROLLING_OWNER", "该用户已是当前 Workspace 的控制性 Owner");
     }

@@ -61,7 +61,7 @@ SEC 在单 Worker 内限制为每 125ms 一次（8 req/s，低于公开的 10 re
 - API 从可信转发头读取用户，按规范化邮箱生成稳定用户 ID。
 - 每条业务记录都带 `workspace_id`；所有读写先查 `workspace_members`。
 - `viewer` 可读取，`editor` 可创建/取消研究，`owner` 可管理成员、转移所有权、请求账户删除。
-- 控制性 Owner 转移通过 `POST /api/v1/workspaces/:workspaceId/ownership-transfer` 完成：仅当前 owner 可调用，目标必须是已有成员，转移在单个 batch 内原子完成（目标先提升为 owner 再更新 `owner_user_id`），旧 owner 保留为普通 owner 成员，新 owner 受降级/移除保护。
+- 控制性 Owner 转移通过 `POST /api/v1/workspaces/:workspaceId/ownership-transfer` 完成：仅当前控制性 Owner（`workspaces.owner_user_id` 指向的用户，而非任意 `owner` 角色成员）可调用，非控制性 owner 返回 403 `CONTROLLING_OWNER_REQUIRED`；目标必须是已有成员，转移在单个 batch 内原子完成（目标先提升为 owner 再更新 `owner_user_id`），旧 owner 保留为普通 owner 成员，新 owner 受降级/移除保护。
 - `0004_military_nemesis.sql` 在 D1 层拒绝非法成员角色、把 owner 转给非成员，以及核心 ResearchJob/Evidence/Thesis/Catalyst/Review/ModelCall 与 Portfolio 记录的跨 Workspace 引用；这是一层纵深防御，不能替代每条 API 的授权查询。
 - IR 连接器只访问证券记录中批准的同域 HTTPS 地址；SEC 只访问固定官方端点；行情 Key 只在服务端环境变量中存在。
 - 审计日志保存动作、资源、request ID、时间和散列后的 IP，不保存原始 IP；写入前会剔除 token、cookie、API key、credential、prompt、raw body/content 等高风险 metadata，并限制嵌套深度、数量和字符串长度。

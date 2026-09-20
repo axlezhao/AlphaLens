@@ -87,6 +87,21 @@ describe("workspace ownership transfer (A3.2)", () => {
     assert.equal(((await responseBody(remove))?.error as Record<string, unknown>)?.code, "CONTROLLING_OWNER_PROTECTED");
   });
 
+  it("blocks the former controlling owner from transferring again", async () => {
+    // After the transfer, ownerA still holds the `owner` role but is no longer
+    // the controlling owner; they must not be able to transfer ownership back.
+    asUser(OWNER_A);
+    const attempt = await transfer(ownerA.workspaceId, { userId: ownerA.userId });
+    assert.equal(attempt.status, 403);
+    assert.equal(((await responseBody(attempt))?.error as Record<string, unknown>)?.code, "CONTROLLING_OWNER_REQUIRED");
+
+    // The workspace ownership is unchanged and no transfer audit was written.
+    const workspace = await getDb().prepare("SELECT owner_user_id AS ownerUserId FROM workspaces WHERE id=?").bind(ownerA.workspaceId).first<{ ownerUserId: string }>();
+    assert.equal(workspace?.ownerUserId, editorAId);
+    const transfers = await auditRows("workspace.ownership.transfer");
+    assert.equal(transfers.length, 1);
+  });
+
   it("writes a sanitized audit row for the transfer", async () => {
     const audits = await auditRows("workspace.ownership.transfer");
     assert.equal(audits.length, 1);

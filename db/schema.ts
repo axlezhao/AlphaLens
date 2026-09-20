@@ -10,6 +10,7 @@ export const users = sqliteTable("users", {
   email: text("email").notNull().unique(),
   displayName: text("display_name"),
   deletionRequestedAt: text("deletion_requested_at"),
+  deletedAt: text("deleted_at"),
   ...timestamps,
 });
 
@@ -128,7 +129,7 @@ export const researchJobs = sqliteTable("research_jobs", {
   requestedByUserId: text("requested_by_user_id").notNull().references(() => users.id),
   securityId: text("security_id").notNull().references(() => securities.id),
   question: text("question").notNull(),
-  status: text("status", { enum: ["queued", "running", "succeeded", "failed", "cancelled"] }).notNull(),
+  status: text("status", { enum: ["queued", "running", "retrying", "succeeded", "failed", "cancelled"] }).notNull(),
   asOf: text("as_of").notNull(),
   idempotencyKey: text("idempotency_key").notNull(),
   traceId: text("trace_id").notNull(),
@@ -146,6 +147,7 @@ export const researchJobs = sqliteTable("research_jobs", {
   completedAt: text("completed_at"),
   errorCode: text("error_code"),
   errorMessage: text("error_message"),
+  eventSeq: integer("event_seq").notNull().default(0),
   ...timestamps,
 }, (t) => [uniqueIndex("research_jobs_idempotency_uq").on(t.workspaceId, t.idempotencyKey), index("research_jobs_queue_idx").on(t.status, t.nextRunAt)]);
 
@@ -231,11 +233,20 @@ export const auditLogs = sqliteTable("audit_logs", {
 export const deletionRequests = sqliteTable("deletion_requests", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id),
-  status: text("status", { enum: ["requested", "processing", "completed", "rejected"] }).notNull(),
+  status: text("status", { enum: ["requested", "processing", "completed", "rejected", "cancelled"] }).notNull(),
   requestedAt: text("requested_at").notNull(),
   completedAt: text("completed_at"),
   reason: text("reason"),
-});
+  scheduledFor: text("scheduled_for"),
+  idempotencyKey: text("idempotency_key"),
+  confirmationText: text("confirmation_text"),
+  cancelledAt: text("cancelled_at"),
+  attempts: integer("attempts").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(5),
+  errorCode: text("error_code"),
+  errorMessage: text("error_message"),
+  startedAt: text("started_at"),
+}, (t) => [uniqueIndex("deletion_requests_user_open_uq").on(t.userId)]);
 
 export const watchlists = sqliteTable("watchlists", {
   id: text("id").primaryKey(),
@@ -340,11 +351,17 @@ export const notificationOutbox = sqliteTable("notification_outbox", {
   title: text("title").notNull(),
   body: text("body").notNull(),
   payloadJson: text("payload_json").notNull().default("{}"),
-  status: text("status", { enum: ["queued", "sending", "delivered", "failed", "cancelled"] }).notNull(),
+  status: text("status", { enum: ["queued", "sending", "delivered", "failed", "dead_letter", "cancelled"] }).notNull(),
   attempts: integer("attempts").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(5),
   nextAttemptAt: text("next_attempt_at").notNull(),
+  leaseOwner: text("lease_owner"),
+  leaseExpiresAt: text("lease_expires_at"),
+  idempotencyKey: text("idempotency_key"),
   providerMessageId: text("provider_message_id"),
   deliveredAt: text("delivered_at"),
+  deadLetteredAt: text("dead_lettered_at"),
+  errorCode: text("error_code"),
   errorMessage: text("error_message"),
   ...timestamps,
 }, (t) => [uniqueIndex("notification_outbox_event_uq").on(t.channelId, t.eventKey), index("notification_outbox_queue_idx").on(t.status, t.nextAttemptAt)]);
@@ -601,5 +618,5 @@ export const webhookSubscriptions = sqliteTable("webhook_subscriptions", {
 }, (t) => [index("webhook_subscriptions_workspace_idx").on(t.workspaceId, t.enabled)]);
 
 export const webhookDeliveries = sqliteTable("webhook_deliveries", {
-  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), subscriptionId: text("subscription_id").notNull().references(() => webhookSubscriptions.id, { onDelete: "cascade" }), eventId: text("event_id").notNull(), eventType: text("event_type").notNull(), payloadJson: text("payload_json").notNull(), status: text("status", { enum: ["queued", "sending", "delivered", "failed", "dead_letter", "cancelled"] }).notNull(), attempts: integer("attempts").notNull().default(0), nextAttemptAt: text("next_attempt_at").notNull(), responseStatus: integer("response_status"), responseBody: text("response_body"), deliveredAt: text("delivered_at"), errorMessage: text("error_message"), ...timestamps,
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), subscriptionId: text("subscription_id").notNull().references(() => webhookSubscriptions.id, { onDelete: "cascade" }), eventId: text("event_id").notNull(), eventType: text("event_type").notNull(), payloadJson: text("payload_json").notNull(), status: text("status", { enum: ["queued", "sending", "delivered", "failed", "dead_letter", "cancelled"] }).notNull(), attempts: integer("attempts").notNull().default(0), maxAttempts: integer("max_attempts").notNull().default(5), nextAttemptAt: text("next_attempt_at").notNull(), leaseOwner: text("lease_owner"), leaseExpiresAt: text("lease_expires_at"), idempotencyKey: text("idempotency_key"), responseStatus: integer("response_status"), responseBody: text("response_body"), deliveredAt: text("delivered_at"), deadLetteredAt: text("dead_lettered_at"), errorCode: text("error_code"), errorMessage: text("error_message"), ...timestamps,
 }, (t) => [uniqueIndex("webhook_deliveries_event_uq").on(t.subscriptionId, t.eventId), index("webhook_deliveries_queue_idx").on(t.status, t.nextAttemptAt)]);

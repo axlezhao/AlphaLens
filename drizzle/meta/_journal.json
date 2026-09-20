@@ -43,6 +43,13 @@
       "when": 1789831546300,
       "tag": "0005_steady_vega",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1789868594433,
+      "tag": "0006_dapper_quasar",
+      "breakpoints": true
     }
   ]
 }

@@ -39,10 +39,17 @@ class ShimPreparedStatement {
     const info = this.db.prepare(this.sql).run(...this.values);
     return { success: true, meta: { changes: Number(info.changes), last_row_id: info.lastInsertRowid } };
   }
+
+  /** Synchronous variant used inside a serialised batch transaction. */
+  runSync(): { success: true; meta: { changes: number; last_row_id: number | bigint } } {
+    const info = this.db.prepare(this.sql).run(...this.values);
+    return { success: true, meta: { changes: Number(info.changes), last_row_id: info.lastInsertRowid } };
+  }
 }
 
 export class D1Shim {
   private readonly db: DatabaseSync;
+  private batchQueue: Promise<unknown> = Promise.resolve();
 
   constructor(db: DatabaseSync) {
     this.db = db;
@@ -52,17 +59,30 @@ export class D1Shim {
     return new ShimPreparedStatement(this.db, sql);
   }
 
-  async batch(statements: ShimPreparedStatement[]) {
-    this.db.exec("BEGIN");
-    try {
-      const results = [];
-      for (const statement of statements) results.push(await statement.run());
-      this.db.exec("COMMIT");
-      return results;
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
+  /**
+   * Runs a batch inside a transaction. node:sqlite is synchronous, but the
+   * surrounding async machinery can interleave two concurrent batches (e.g.
+   * concurrent `appendEvent` calls) into a "transaction within a transaction"
+   * error. A promise chain serialises batches so each is one atomic transaction,
+   * mirroring D1's atomic batch semantics.
+   */
+  batch(statements: ShimPreparedStatement[]): Promise<Array<{ success: true; meta: { changes: number; last_row_id: number | bigint } }>> {
+    const run = () => {
+      this.db.exec("BEGIN");
+      try {
+        const results = [];
+        for (const statement of statements) results.push(statement.runSync());
+        this.db.exec("COMMIT");
+        return results;
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        throw error;
+      }
+    };
+    const result = this.batchQueue.then(run, run);
+    // Keep the chain alive even if a batch throws.
+    this.batchQueue = result.catch(() => {});
+    return result;
   }
 
   close() {

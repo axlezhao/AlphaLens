@@ -89,7 +89,7 @@ describe("outbox reliability (A3.3)", () => {
     await enqueueWebhookDelivery({ workspaceId: tenantA.workspaceId, subscriptionId: subId, eventId: "retry-event", eventType: "research.completed", payload: {}, idempotencyKey: "retry-key", maxAttempts: 2 });
     const claimed = await claimNextWebhook("w1");
     assert.ok(claimed);
-    await failWebhook(claimed!.id, new Error("transient"), true);
+    await failWebhook(claimed!.id, claimed!.leaseToken, new Error("transient"), true);
     let row = await getDb().prepare("SELECT status,error_code AS errorCode FROM webhook_deliveries WHERE id=?").bind(claimed!.id).first<{ status: string; errorCode: string | null }>();
     assert.equal(row?.status, "queued");
 
@@ -97,7 +97,7 @@ describe("outbox reliability (A3.3)", () => {
     await getDb().prepare("UPDATE webhook_deliveries SET next_attempt_at=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), claimed!.id).run();
     const claimed2 = await claimNextWebhook("w1");
     assert.ok(claimed2);
-    await failWebhook(claimed2!.id, new Error("still failing"), true);
+    await failWebhook(claimed2!.id, claimed2!.leaseToken, new Error("still failing"), true);
     row = await getDb().prepare("SELECT status,error_code AS errorCode FROM webhook_deliveries WHERE id=?").bind(claimed!.id).first<{ status: string; errorCode: string | null }>();
     assert.equal(row?.status, "dead_letter");
     assert.equal(row?.errorCode, "ATTEMPTS_EXHAUSTED");
@@ -107,7 +107,7 @@ describe("outbox reliability (A3.3)", () => {
     const subId = await seedSubscription(tenantA.workspaceId, "https://example.com/hook", ["research.completed"]);
     await enqueueWebhookDelivery({ workspaceId: tenantA.workspaceId, subscriptionId: subId, eventId: "secret-event", eventType: "research.completed", payload: {}, idempotencyKey: "secret-key" });
     const claimed = await claimNextWebhook("w1");
-    await failWebhook(claimed!.id, new Error("delivery failed, signing secret=supersecret token=abc123"), true);
+    await failWebhook(claimed!.id, claimed!.leaseToken, new Error("delivery failed, signing secret=supersecret token=abc123"), true);
     const row = await getDb().prepare("SELECT error_message AS errorMessage FROM webhook_deliveries WHERE id=?").bind(claimed!.id).first<{ errorMessage: string }>();
     assert.ok(!row!.errorMessage.includes("supersecret"));
     assert.ok(!row!.errorMessage.includes("abc123"));
@@ -117,7 +117,7 @@ describe("outbox reliability (A3.3)", () => {
     const subId = await seedSubscription(tenantA.workspaceId, "https://example.com/hook", ["research.completed"]);
     await enqueueWebhookDelivery({ workspaceId: tenantA.workspaceId, subscriptionId: subId, eventId: "dlq-event", eventType: "research.completed", payload: {}, idempotencyKey: "dlq-key", maxAttempts: 1 });
     const claimed = await claimNextWebhook("w1");
-    await failWebhook(claimed!.id, new Error("boom"), true);
+    await failWebhook(claimed!.id, claimed!.leaseToken, new Error("boom"), true);
     // A different workspace cannot requeue it.
     const crossTenant = await requeueWebhookDeadLetter(tenantB.workspaceId, claimed!.id);
     assert.equal(crossTenant, false);
@@ -143,9 +143,63 @@ describe("outbox reliability (A3.3)", () => {
     const subId = await seedSubscription(tenantA.workspaceId, "https://example.com/hook", ["research.completed"]);
     await enqueueWebhookDelivery({ workspaceId: tenantA.workspaceId, subscriptionId: subId, eventId: "done-event", eventType: "research.completed", payload: {}, idempotencyKey: "done-key" });
     const claimed = await claimNextWebhook("w1");
-    await completeWebhook(claimed!.id, 200, "ok");
-    const row = await getDb().prepare("SELECT status,response_status AS responseStatus FROM webhook_deliveries WHERE id=?").bind(claimed!.id).first<{ status: string; responseStatus: number }>();
+    await completeWebhook(claimed!.id, claimed!.leaseToken, { status: 200, bytes: 2, hash: "ab" });
+    const row = await getDb().prepare("SELECT status,response_status AS responseStatus,response_bytes AS responseBytes FROM webhook_deliveries WHERE id=?").bind(claimed!.id).first<{ status: string; responseStatus: number; responseBytes: number | null }>();
     assert.equal(row?.status, "delivered");
     assert.equal(row?.responseStatus, 200);
+  });
+
+  it("a stale worker's complete cannot overwrite a newer worker's sending state", async () => {
+    const subId = await seedSubscription(tenantA.workspaceId, "https://example.com/hook", ["research.completed"]);
+    await enqueueWebhookDelivery({ workspaceId: tenantA.workspaceId, subscriptionId: subId, eventId: "stale-complete", eventType: "research.completed", payload: {}, idempotencyKey: "stale-complete" });
+    // Worker A claims, then its lease expires and is reclaimed by worker B.
+    const a = await claimNextWebhook("worker-a");
+    assert.ok(a);
+    await getDb().prepare("UPDATE webhook_deliveries SET lease_expires_at=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), a!.id).run();
+    await recoverExpiredWebhooks();
+    const b = await claimNextWebhook("worker-b");
+    assert.ok(b);
+    assert.equal(b!.id, a!.id);
+    // A's late complete (with A's stale token) must not change B's sending state.
+    const changed = await completeWebhook(a!.id, a!.leaseToken, { status: 200 });
+    assert.equal(changed, false);
+    const row = await getDb().prepare("SELECT status,lease_owner AS leaseOwner FROM webhook_deliveries WHERE id=?").bind(a!.id).first<{ status: string; leaseOwner: string | null }>();
+    assert.equal(row?.status, "sending");
+    assert.equal(row?.leaseOwner, "worker-b");
+  });
+
+  it("a stale worker's fail cannot overwrite a delivered state", async () => {
+    const subId = await seedSubscription(tenantA.workspaceId, "https://example.com/hook", ["research.completed"]);
+    await enqueueWebhookDelivery({ workspaceId: tenantA.workspaceId, subscriptionId: subId, eventId: "stale-fail", eventType: "research.completed", payload: {}, idempotencyKey: "stale-fail" });
+    const a = await claimNextWebhook("worker-a");
+    assert.ok(a);
+    // B reclaims after A's lease expires, then B delivers successfully.
+    await getDb().prepare("UPDATE webhook_deliveries SET lease_expires_at=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), a!.id).run();
+    await recoverExpiredWebhooks();
+    const b = await claimNextWebhook("worker-b");
+    assert.ok(b);
+    await completeWebhook(b!.id, b!.leaseToken, { status: 200 });
+    // A's late fail (stale token) must not overwrite B's delivered state.
+    const changed = await failWebhook(a!.id, a!.leaseToken, new Error("late failure"), true);
+    assert.equal(changed, false);
+    const row = await getDb().prepare("SELECT status FROM webhook_deliveries WHERE id=?").bind(a!.id).first<{ status: string }>();
+    assert.equal(row?.status, "delivered");
+  });
+
+  it("a stale worker's requeue cannot move a delivered delivery", async () => {
+    const subId = await seedSubscription(tenantA.workspaceId, "https://example.com/hook", ["research.completed"]);
+    await enqueueWebhookDelivery({ workspaceId: tenantA.workspaceId, subscriptionId: subId, eventId: "stale-requeue", eventType: "research.completed", payload: {}, idempotencyKey: "stale-requeue", maxAttempts: 1 });
+    const a = await claimNextWebhook("worker-a");
+    assert.ok(a);
+    await getDb().prepare("UPDATE webhook_deliveries SET lease_expires_at=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), a!.id).run();
+    await recoverExpiredWebhooks();
+    const b = await claimNextWebhook("worker-b");
+    assert.ok(b);
+    await completeWebhook(b!.id, b!.leaseToken, { status: 200 });
+    // A's stale requeue path: failWebhook with a stale token cannot touch delivered.
+    const changed = await failWebhook(a!.id, a!.leaseToken, new Error("boom"), true);
+    assert.equal(changed, false);
+    const row = await getDb().prepare("SELECT status FROM webhook_deliveries WHERE id=?").bind(a!.id).first<{ status: string }>();
+    assert.equal(row?.status, "delivered");
   });
 });

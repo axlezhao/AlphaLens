@@ -23,11 +23,11 @@ export async function POST(request: Request) {
     if (!delivery) break;
     try {
       const result = await deliverWebhook(delivery);
-      await completeWebhook(delivery.id, result.status, result.body);
+      await completeWebhook(delivery.id, delivery.leaseToken, result);
       results.push({ id: delivery.id, status: "delivered" });
     } catch (error) {
       const { retryable } = deliveryFailureMeta(error);
-      await failWebhook(delivery.id, error, retryable);
+      await failWebhook(delivery.id, delivery.leaseToken, error, retryable);
       results.push({ id: delivery.id, status: retryable ? "queued" : "dead_letter" });
       if (!retryable) {
         // Non-retryable failures (unsafe destination, oversized payload) stop

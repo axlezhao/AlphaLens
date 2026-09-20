@@ -7,12 +7,16 @@ import { summarizeDeliveryError, validateWebhookUrl } from "./webhook-safety";
  * and a signing header derived from an environment secret (never persisted).
  * `fetchImpl` is injectable so tests can assert against a local endpoint or a
  * fake without touching the network.
+ *
+ * The response body is consumed only to compute a bounded, non-sensitive
+ * fingerprint (byte length + content hash); the raw body is never returned or
+ * persisted, so an external endpoint cannot leak sensitive data into the DB.
  */
 
 const MAX_PAYLOAD_BYTES = 256 * 1024;
 const CONNECT_TIMEOUT_MS = 5_000;
 
-export type DeliveryResult = { status: number; body?: string };
+export type DeliveryResult = { status: number; bytes: number; hash: string };
 
 export async function deliverWebhook(delivery: WebhookDeliveryRow, fetchImpl: typeof fetch = fetch): Promise<DeliveryResult> {
   const allowLoopback = isLocalFixtureMode();
@@ -47,16 +51,23 @@ export async function deliverWebhook(delivery: WebhookDeliveryRow, fetchImpl: ty
       body: payload,
       signal: controller.signal,
     });
-    const body = await response.text().catch(() => "");
+    const text = await response.text().catch(() => "");
+    const bytes = Buffer.byteLength(text);
+    const hash = await contentDigest(text);
     if (response.status >= 200 && response.status < 300) {
-      return { status: response.status, body: body.slice(0, 1000) };
+      return { status: response.status, bytes, hash };
     }
     // Non-2xx is retryable (transient upstream failure); 4xx like 410 Gone is
     // treated as retryable here to keep the model simple and observable.
-    throw Object.assign(new Error(`Webhook responded ${response.status}`), { code: "DELIVERY_REJECTED", retryable: true, status: response.status, body: body.slice(0, 1000) });
+    throw Object.assign(new Error(`Webhook responded ${response.status}`), { code: "DELIVERY_REJECTED", retryable: true, status: response.status, body: text.slice(0, 1000) });
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function contentDigest(text: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function hmacSignature(secret: string, payload: string): Promise<string> {

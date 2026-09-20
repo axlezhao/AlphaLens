@@ -2,7 +2,7 @@
 
 > 当前为独立开源项目的实验性 `0.5.0-beta`，不是已通过安全审计的生产服务。本文描述运行配置和机制，不能替代端到端验收。先读[开发边界](DEVELOPMENT.md)、[已知缺口](CAPABILITIES_AND_ROADMAP.md)与[安全政策](../SECURITY.md)。现有部署访问权限保持不变；不要复用原项目的 hosting 标识作为自己的部署配置。
 >
-> 研究 runner 目前收集快照而非生成论点；平台仲裁/质量评分是启发式实现。Workflow 的审批恢复、发布节点、并发限制与失败终态仍需完善，Webhook Outbox 中断恢复和出站请求防护也需加固。本仓库现有 loopback-only fixture 身份和本地 D1 开发路径，但没有可直接替换为普通公网 Node 服务的独立生产认证方案。A3.2 已交付请求级 Workspace RBAC（`requireWorkspaceAccess` / `requirePortfolioAccess` / `listAccessibleWorkspaces` 统一 401/403/404，跨租户资源 ID 返回与缺失相同的 404，成员管理 API 写脱敏审计），以及双租户 HTTP 集成测试；A3.3 队列失败恢复、删除实际执行与生产认证尚未完成。
+> 研究 runner 目前收集快照而非生成论点；平台仲裁/质量评分是启发式实现。Workflow 的审批恢复、发布节点、并发限制与失败终态仍需完善，Webhook Outbox 中断恢复和出站请求防护也需加固。本仓库现有 loopback-only fixture 身份和本地 D1 开发路径，但没有可直接替换为普通公网 Node 服务的独立生产认证方案。A3.2 已交付请求级 Workspace RBAC（`requireWorkspaceAccess` / `requirePortfolioAccess` / `listAccessibleWorkspaces` 统一 401/403/404，跨租户资源 ID 返回与缺失相同的 404，成员管理 API 写脱敏审计）、原子化控制性 Owner 转移（目标须为已有成员），以及双租户 HTTP 集成测试；A3.3 队列失败恢复、删除实际执行与生产认证尚未完成。
 
 ## 1. Beta 运行链路
 
@@ -60,7 +60,8 @@ SEC 在单 Worker 内限制为每 125ms 一次（8 req/s，低于公开的 10 re
 - 登录使用 Sites 调度层管理的 Sign in with ChatGPT；应用不保存密码。
 - API 从可信转发头读取用户，按规范化邮箱生成稳定用户 ID。
 - 每条业务记录都带 `workspace_id`；所有读写先查 `workspace_members`。
-- `viewer` 可读取，`editor` 可创建/取消研究，`owner` 可请求账户删除。
+- `viewer` 可读取，`editor` 可创建/取消研究，`owner` 可管理成员、转移所有权、请求账户删除。
+- 控制性 Owner 转移通过 `POST /api/v1/workspaces/:workspaceId/ownership-transfer` 完成：仅当前 owner 可调用，目标必须是已有成员，转移在单个 batch 内原子完成（目标先提升为 owner 再更新 `owner_user_id`），旧 owner 保留为普通 owner 成员，新 owner 受降级/移除保护。
 - `0004_military_nemesis.sql` 在 D1 层拒绝非法成员角色、把 owner 转给非成员，以及核心 ResearchJob/Evidence/Thesis/Catalyst/Review/ModelCall 与 Portfolio 记录的跨 Workspace 引用；这是一层纵深防御，不能替代每条 API 的授权查询。
 - IR 连接器只访问证券记录中批准的同域 HTTPS 地址；SEC 只访问固定官方端点；行情 Key 只在服务端环境变量中存在。
 - 审计日志保存动作、资源、request ID、时间和散列后的 IP，不保存原始 IP；写入前会剔除 token、cookie、API key、credential、prompt、raw body/content 等高风险 metadata，并限制嵌套深度、数量和字符串长度。

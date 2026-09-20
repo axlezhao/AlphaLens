@@ -37,6 +37,8 @@ export async function requireAuthenticatedUser(request: Request): Promise<Authen
   const userId = await stableId("usr", normalizedEmail);
   const now = new Date().toISOString();
   await getD1().prepare("INSERT OR IGNORE INTO users (id,email,display_name,created_at,updated_at) VALUES (?,?,?,?,?)").bind(userId, normalizedEmail, user.displayName, now, now).run();
+  const deleted = await getD1().prepare("SELECT deleted_at AS deletedAt FROM users WHERE id=?").bind(userId).first<{ deletedAt: string | null }>();
+  if (deleted?.deletedAt) throw new HttpError(401, "ACCOUNT_DELETED", "账户已删除，无法继续访问");
   return { userId, email: normalizedEmail, displayName: user.displayName };
 }
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { POST as requestDelete } from "../app/api/v1/account/delete/route";
 import { POST as cancelDelete } from "../app/api/v1/account/delete/cancel/route";
-import { cancelDeletion, claimNextDeletion, completeDeletion, executeDeletion, findBlockingOwnership, requestDeletion, DeletionBlockedError } from "../lib/account/deletion";
+import { cancelDeletion, claimNextDeletion, completeDeletion, executeDeletion, findBlockingOwnership, requestDeletion, recoverExpiredDeletions, failDeletion, DeletionBlockedError } from "../lib/account/deletion";
 import { requireAuthenticatedUser } from "../lib/auth/context";
 import {
   OWNER_A, OWNER_B, EDITOR_A, addMember, apiRequest, asUser, getDb, installHarness, provisionTenant, responseBody, teardownHarness,
@@ -85,10 +85,10 @@ describe("account deletion (A3.3)", () => {
     const user = await requireAuthenticatedUser(apiRequest("/api/v1/workbench"));
     const result = await requestDeletion(user.userId, { confirmation: "DELETE" });
     await getDb().prepare("UPDATE deletion_requests SET scheduled_for=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), result.id).run();
-    const claim = await claimNextDeletion();
+    const claim = await claimNextDeletion("worker-1");
     assert.equal(claim?.userId, user.userId);
     await executeDeletion(claim!.userId);
-    await completeDeletion(claim!.id);
+    await completeDeletion(claim!.id, claim!.leaseToken);
 
     const deleted = await getDb().prepare("SELECT deleted_at AS deletedAt,display_name AS displayName FROM users WHERE id=?").bind(user.userId).first<{ deletedAt: string | null; displayName: string | null }>();
     assert.ok(deleted?.deletedAt, "user must be tombstoned");
@@ -123,5 +123,77 @@ describe("account deletion (A3.3)", () => {
     asUser(EDITOR_A);
     const response = await cancelDelete(apiRequest("/api/v1/account/delete/cancel", { method: "POST" }));
     assert.equal(response.status, 404);
+  });
+
+  it("allows a sole owner to delete their personal workspace and account", async () => {
+    // A fresh user whose default workspace has no other members is not blocked.
+    asUser("solo@local.invalid");
+    const user = await requireAuthenticatedUser(apiRequest("/api/v1/workbench"));
+    assert.equal(await findBlockingOwnership(user.userId), null);
+    const result = await requestDeletion(user.userId, { confirmation: "DELETE" });
+    assert.equal(result.status, "requested");
+    await getDb().prepare("UPDATE deletion_requests SET scheduled_for=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), result.id).run();
+    const claim = await claimNextDeletion("worker-1");
+    assert.equal(claim?.userId, user.userId);
+    await executeDeletion(claim!.userId);
+    await completeDeletion(claim!.id, claim!.leaseToken);
+    const deleted = await getDb().prepare("SELECT deleted_at AS deletedAt FROM users WHERE id=?").bind(user.userId).first<{ deletedAt: string | null }>();
+    assert.ok(deleted?.deletedAt);
+  });
+
+  it("recovers a processing deletion whose lease expired after a crash", async () => {
+    asUser("crash@local.invalid");
+    const user = await requireAuthenticatedUser(apiRequest("/api/v1/workbench"));
+    const result = await requestDeletion(user.userId, { confirmation: "DELETE" });
+    await getDb().prepare("UPDATE deletion_requests SET scheduled_for=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), result.id).run();
+    const claim = await claimNextDeletion("worker-1");
+    assert.equal(claim?.userId, user.userId);
+    // Simulate a crash: the claim is in processing with an expired lease.
+    await getDb().prepare("UPDATE deletion_requests SET lease_expires_at=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), result.id).run();
+    await recoverExpiredDeletions();
+    const row = await getDb().prepare("SELECT status,lease_owner AS leaseOwner FROM deletion_requests WHERE id=?").bind(result.id).first<{ status: string; leaseOwner: string | null }>();
+    assert.equal(row?.status, "requested");
+    assert.equal(row?.leaseOwner, null);
+    // A second worker can now claim and complete it.
+    const reclaim = await claimNextDeletion("worker-2");
+    assert.equal(reclaim?.userId, user.userId);
+    await executeDeletion(reclaim!.userId);
+    await completeDeletion(reclaim!.id, reclaim!.leaseToken);
+  });
+
+  it("a duplicate deletion request while processing returns the same request, no 500", async () => {
+    asUser("dup@local.invalid");
+    const user = await requireAuthenticatedUser(apiRequest("/api/v1/workbench"));
+    const result = await requestDeletion(user.userId, { confirmation: "DELETE" });
+    await getDb().prepare("UPDATE deletion_requests SET scheduled_for=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), result.id).run();
+    const claim = await claimNextDeletion("worker-1");
+    assert.ok(claim);
+    // While processing, a repeat request returns the same id, not a 500 or a second row.
+    const again = await requestDeletion(user.userId, { confirmation: "DELETE" });
+    assert.equal(again.id, result.id);
+    const count = await getDb().prepare("SELECT COUNT(*) AS c FROM deletion_requests WHERE user_id=? AND status IN ('requested','processing')").bind(user.userId).first<{ c: number }>();
+    assert.equal(count?.c, 1);
+    await completeDeletion(claim!.id, claim!.leaseToken);
+  });
+
+  it("a stale deletion worker cannot overwrite a newer worker's completion", async () => {
+    asUser("stale-del@local.invalid");
+    const user = await requireAuthenticatedUser(apiRequest("/api/v1/workbench"));
+    const result = await requestDeletion(user.userId, { confirmation: "DELETE" });
+    await getDb().prepare("UPDATE deletion_requests SET scheduled_for=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), result.id).run();
+    const a = await claimNextDeletion("worker-a");
+    assert.ok(a);
+    // A's lease expires; B reclaims and completes.
+    await getDb().prepare("UPDATE deletion_requests SET lease_expires_at=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), result.id).run();
+    await recoverExpiredDeletions();
+    const b = await claimNextDeletion("worker-b");
+    assert.ok(b);
+    await executeDeletion(b!.userId);
+    await completeDeletion(b!.id, b!.leaseToken);
+    // A's stale completion/failure must not change the completed state.
+    await completeDeletion(a!.id, a!.leaseToken);
+    await failDeletion(a!.id, a!.leaseToken, new Error("late"), true);
+    const row = await getDb().prepare("SELECT status FROM deletion_requests WHERE id=?").bind(result.id).first<{ status: string }>();
+    assert.equal(row?.status, "completed");
   });
 });

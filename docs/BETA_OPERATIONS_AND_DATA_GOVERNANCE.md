@@ -2,7 +2,7 @@
 
 > 当前为独立开源项目的实验性 `0.5.0-beta`，不是已通过安全审计的生产服务。本文描述运行配置和机制，不能替代端到端验收。先读[开发边界](DEVELOPMENT.md)、[已知缺口](CAPABILITIES_AND_ROADMAP.md)与[安全政策](../SECURITY.md)。现有部署访问权限保持不变；不要复用原项目的 hosting 标识作为自己的部署配置。
 >
-> 研究 runner 目前收集快照而非生成论点；平台仲裁/质量评分是启发式实现。Workflow 的审批恢复、发布节点、并发限制与失败终态仍需完善。本仓库现有 loopback-only fixture 身份和本地 D1 开发路径，但没有可直接替换为普通公网 Node 服务的独立生产认证方案。A3.2 已交付请求级 Workspace RBAC（`requireWorkspaceAccess` / `requirePortfolioAccess` / `listAccessibleWorkspaces` 统一 401/403/404，跨租户资源 ID 返回与缺失相同的 404，成员管理 API 写脱敏审计）、原子化控制性 Owner 转移（目标须为已有成员），以及双租户 HTTP 集成测试。A3.3 已交付可恢复研究任务状态机、at-least-once 的 Webhook/通知 Outbox（含防 SSRF URL 校验与 dead-letter）与安全账户删除（确认门 + controlling-owner 前置 + 后台软删除）。仍未完成：托管队列托管、生产 OAuth/SSO、监控告警、Webhook 崩溃恢复与合规审批的数据保留策略。
+> 研究 runner 目前收集快照而非生成论点；平台仲裁/质量评分是启发式实现。Workflow 的审批恢复、发布节点、并发限制与失败终态仍需完善。本仓库现有 loopback-only fixture 身份和本地 D1 开发路径，但没有可直接替换为普通公网 Node 服务的独立生产认证方案。A3.2 已交付请求级 Workspace RBAC（`requireWorkspaceAccess` / `requirePortfolioAccess` / `listAccessibleWorkspaces` 统一 401/403/404，跨租户资源 ID 返回与缺失相同的 404，成员管理 API 写脱敏审计）、原子化控制性 Owner 转移（目标须为已有成员），以及双租户 HTTP 集成测试。A3.3 已交付可恢复研究任务状态机（每次领取写入唯一 lease token，所有终结/重试状态转换用 compare-and-set 校验 token、预期状态与未过期 lease，取消优先，事件序号在单事务内递增）、at-least-once 的 Webhook Outbox（防 SSRF URL 校验、lease token + compare-and-set、原始响应体不落库、owner-only dead-letter 重投）与安全账户删除（确认门 + controlling-owner 前置 + 后台软删除 + lease 恢复，区分个人/共享 Workspace）。通知 Outbox 目前只有入队与投递逻辑、尚未达到 Webhook 同级的 lease/CAS 保护，因此不宣称「可靠投递通知」。仍未完成：托管队列、生产 OAuth/SSO、监控告警、Webhook 崩溃恢复、通知的 Webhook 级可靠投递与合规审批的数据保留策略。
 
 ## 1. Beta 运行链路
 
@@ -25,7 +25,7 @@ flowchart LR
 
 创建任务写入 D1 后立即返回 `202`，并通过 Cloudflare `waitUntil` 启动后台消费者。内部 Worker 通过条件更新获取 90 秒租约，执行时增加 `attempts`；Worker 丢失或超过后台执行窗口后，受保护的恢复 Worker 会回收租约。任务支持指数退避、三次尝试、十分钟超时、取消标记、轮询和 SSE 增量事件。
 
-P1 工作台复用相同租户与任务基础设施。财报 Preview / Deep Dive 创建 ResearchJob；催化剂订阅由 `workbench-worker` 按 `next_refresh_at` 拉取官方 IR；提醒先进入幂等 Outbox，再由邮件、企业微信或微信公众号 Adapter 投递。连接器目标使用 AES-GCM 加密保存，列表接口只返回脱敏提示。
+P1 工作台复用相同租户与任务基础设施。财报 Preview / Deep Dive 创建 ResearchJob；催化剂订阅由 `workbench-worker` 按 `next_refresh_at` 拉取官方 IR；提醒先进入幂等 Outbox，再由邮件、企业微信或微信公众号 Adapter 投递。连接器目标使用 AES-GCM 加密保存，列表接口只返回脱敏提示。注意：通知 Outbox 的投递目前没有 Webhook 同级的 lease token / compare-and-set 保护，属于「有投递代码、未达到可靠投递标准」的接口，A3.3 不对其作可靠投递承诺。
 
 P2 组合层继续复用 Workspace RBAC 与审计。持仓、风险政策、收益率、相关性快照、情景版本/结果、风险快照和行动条件全部按 `workspace_id + portfolio_id` 隔离。组合分析是同步、确定性的纯计算，不调用外部交易系统；`risk.refresh` 按输入哈希去重快照并保存触发条件。
 
@@ -65,7 +65,7 @@ SEC 在单 Worker 内限制为每 125ms 一次（8 req/s，低于公开的 10 re
 - `0004_military_nemesis.sql` 在 D1 层拒绝非法成员角色、把 owner 转给非成员，以及核心 ResearchJob/Evidence/Thesis/Catalyst/Review/ModelCall 与 Portfolio 记录的跨 Workspace 引用；这是一层纵深防御，不能替代每条 API 的授权查询。
 - IR 连接器只访问证券记录中批准的同域 HTTPS 地址；SEC 只访问固定官方端点；行情 Key 只在服务端环境变量中存在。
 - 审计日志保存动作、资源、request ID、时间和散列后的 IP，不保存原始 IP；写入前会剔除 token、cookie、API key、credential、prompt、raw body/content 等高风险 metadata，并限制嵌套深度、数量和字符串长度。
-- 删除接口先创建可审计请求；后台数据保留策略执行级联删除。生产上线前应明确法定保留例外和 SLA。
+- 删除接口先创建可审计请求；后台数据保留策略执行软删除（tombstone + PII 匿名化）。删除 Worker 每次领取写入 lease token，终结/重试/失败都用 compare-and-set；lease 过期可恢复、有限重试与退避、耗尽进入 rejected 终态；执行前再次校验 ownership（请求后若成为共享 Workspace 的 controlling owner 则中止）。控制性 Owner 若拥有仍有其他成员的共享 Workspace 必须先转移所有权；仅拥有个人 Workspace（无其他成员）时，账户删除会一并 tombstone 该个人 Workspace，不影响其他 Workspace。普通成员删除仅移除自身 membership，不删除共享 Workspace、其他成员或审计链。生产上线前应明确法定保留例外和 SLA。
 
 ## 5. 数据模型与版本规则
 
@@ -79,14 +79,14 @@ SEC 在单 Worker 内限制为每 125ms 一次（8 req/s，低于公开的 10 re
 - 每个 Job 固化 `as_of`、model version、prompt version、trace ID 和最终 snapshot。
 - ThesisFalsifier 与 Thesis 分别通过 `logical_id + version` 保留不可变时间线。
 - EarningsWorkflow 使用 Workspace 范围幂等键关联 ResearchJob，避免重复创建同一财报研究。
-- NotificationOutbox 使用 `channel_id + event_key` 去重，并最多重试五次。
+- NotificationOutbox 使用 `channel_id + event_key` 去重，并最多重试五次；其投递尚未达到 Webhook 的 lease/CAS 标准，见上文。
 - Peer 指标必须保存 `metrics_as_of`；缺少来源或时间的快照在 UI/导出中明确标记。
 - Position 保留 `price_as_of`、`data_status`、币种、ADV 与因子/事件输入；默认标记为 `user_input`，不得冒充实时行情。
 - Scenario 通过 `logical_id + version + supersedes_id` 保留版本；Result 和 RiskSnapshot 通过输入哈希幂等。
 - ActionCondition 只保存谓词、严重度、说明和人工确认状态；没有订单或执行字段。
 - Workflow/KPI/Skill/Artifact 使用稳定逻辑 ID 与不可变版本；每个 Run 固化版本、`as_of` 和 trace。
 - API Client 只保存 Key prefix 与 SHA-256 hash；明文只在创建响应出现一次。
-- Webhook Subscription 使用 AES-GCM 保存签名密钥；Delivery 按 subscription + event 幂等并最多尝试八次。
+- Webhook Subscription 使用 AES-GCM 保存签名密钥；Delivery 按 subscription + event 幂等，通过 lease token + compare-and-set 完成状态转换；原始响应体不落库，仅保存状态码、字节长度与内容哈希；dead-letter 仅 Workspace owner 可重投并写审计。
 
 ## 6. 运维配置
 

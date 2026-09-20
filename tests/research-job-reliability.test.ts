@@ -95,9 +95,9 @@ describe("research job reliability (A3.3)", () => {
   });
 
   it("finalises a cancelled running job as cancelled, never succeeded", async () => {
-    const jobId = await seedJob(tenantA.workspaceId, tenantA.userId, "AMD", { status: "running", attempts: 1, cancel_requested_at: new Date().toISOString() });
+    const jobId = await seedJob(tenantA.workspaceId, tenantA.userId, "AMD", { status: "running", attempts: 1, cancel_requested_at: new Date().toISOString(), lease_token: "tok-cancel", lease_expires_at: new Date(Date.now() + 60_000).toISOString() });
     const sec = await getDb().prepare("SELECT id FROM securities WHERE workspace_id=? LIMIT 1").bind(tenantA.workspaceId).first<{ id: string }>();
-    const job = { id: jobId, workspaceId: tenantA.workspaceId, securityId: sec!.id, ticker: "AMD", question: "q", asOf: new Date().toISOString(), attempts: 1, maxAttempts: 3, irBaseUrl: null, irFeedUrl: null };
+    const job = { id: jobId, workspaceId: tenantA.workspaceId, securityId: sec!.id, ticker: "AMD", question: "q", asOf: new Date().toISOString(), attempts: 1, maxAttempts: 3, irBaseUrl: null, irFeedUrl: null, leaseToken: "tok-cancel" };
     const result = await executeJob(job);
     assert.equal(result.status, "cancelled");
     const row = await getDb().prepare("SELECT status FROM research_jobs WHERE id=?").bind(jobId).first<{ status: string }>();
@@ -118,5 +118,48 @@ describe("research job reliability (A3.3)", () => {
     assert.equal(result, null);
     const row = await getDb().prepare("SELECT status FROM research_jobs WHERE id=?").bind(jobId).first<{ status: string }>();
     assert.equal(row?.status, "queued");
+  });
+
+  it("a worker whose lease expired cannot write a final result after reclaim", async () => {
+    const jobId = await seedJob(tenantA.workspaceId, tenantA.userId, "AMD");
+    const a = await claimNextJob("worker-a");
+    assert.ok(a);
+    // A's lease expires; B reclaims the job.
+    await getDb().prepare("UPDATE research_jobs SET lease_expires_at=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), jobId).run();
+    await recoverExpiredJobs();
+    const b = await claimNextJob("worker-b");
+    assert.ok(b);
+    assert.equal(b!.id, jobId);
+    // A's stale final write (old lease token) must not land.
+    const stale = { ...a!, leaseToken: a!.leaseToken };
+    const result = await executeJob(stale);
+    assert.notEqual(result.status, "succeeded");
+    // The job is still held by B (running), not finalised by A.
+    const row = await getDb().prepare("SELECT status,lease_owner AS leaseOwner FROM research_jobs WHERE id=?").bind(jobId).first<{ status: string; leaseOwner: string | null }>();
+    assert.equal(row?.status, "running");
+    assert.equal(row?.leaseOwner, "worker-b");
+  });
+
+  it("a cancelled job creates no research.completed outbox delivery", async () => {
+    const jobId = await seedJob(tenantA.workspaceId, tenantA.userId, "AMD", { status: "running", attempts: 1, cancel_requested_at: new Date().toISOString(), lease_token: "tok-cancel2", lease_expires_at: new Date(Date.now() + 60_000).toISOString() });
+    const sec = await getDb().prepare("SELECT id FROM securities WHERE workspace_id=? LIMIT 1").bind(tenantA.workspaceId).first<{ id: string }>();
+    const job = { id: jobId, workspaceId: tenantA.workspaceId, securityId: sec!.id, ticker: "AMD", question: "q", asOf: new Date().toISOString(), attempts: 1, maxAttempts: 3, irBaseUrl: null, irFeedUrl: null, leaseToken: "tok-cancel2" };
+    await executeJob(job);
+    const deliveries = await getDb().prepare("SELECT COUNT(*) AS c FROM webhook_deliveries WHERE event_id=?").bind(`${jobId}:research.completed`).first<{ c: number }>();
+    assert.equal(deliveries?.c, 0, "a cancelled job must not enqueue research.completed");
+  });
+
+  it("appends events with a contiguous, gap-free sequence", async () => {
+    const jobId = await seedJob(tenantA.workspaceId, tenantA.userId, "AMD");
+    await import("../lib/research/queue").then(({ appendEvent }) => Promise.all([
+      appendEvent(jobId, "a", {}),
+      appendEvent(jobId, "b", {}),
+      appendEvent(jobId, "c", {}),
+    ]));
+    const rows = await getDb().prepare("SELECT sequence FROM research_job_events WHERE job_id=? ORDER BY sequence").bind(jobId).all<{ sequence: number }>();
+    const seqs = rows.results.map((r) => r.sequence);
+    assert.equal(seqs.length, 3);
+    // Strictly monotonic with no gaps.
+    for (let i = 1; i < seqs.length; i++) assert.equal(seqs[i], seqs[i - 1] + 1);
   });
 });

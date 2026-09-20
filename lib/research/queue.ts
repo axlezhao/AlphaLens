@@ -41,14 +41,18 @@ export async function cancelJob(workspaceId: string, jobId: string) {
 
 /**
  * Appends an immutable job event with a collision-free, in-order sequence.
- * The sequence is derived from an atomic `UPDATE ... RETURNING event_seq`
- * increment on the parent job — never a racy `SELECT MAX(...)`.
+ * The increment and the insert run in a single database transaction, so a
+ * crash between them cannot leave a sequence gap (a counter that advanced
+ * with no matching event). The sequence comes from the parent job's atomic
+ * counter, never a racy `SELECT MAX(...)`. The INSERT reads the counter back
+ * inside the same transaction, so the value is exactly the incremented one.
  */
 export async function appendEvent(jobId: string, type: string, payload: unknown) {
   const db = getD1(); const now = new Date().toISOString();
-  const seq = await db.prepare("UPDATE research_jobs SET event_seq = event_seq + 1 WHERE id=? RETURNING event_seq").bind(jobId).first<{ event_seq: number }>();
-  if (!seq) return;
-  await db.prepare("INSERT OR IGNORE INTO research_job_events (id,job_id,sequence,event_type,payload_json,created_at) VALUES (?,?,?,?,?,?)").bind(crypto.randomUUID(), jobId, seq.event_seq, type, JSON.stringify(payload), now).run();
+  await db.batch([
+    db.prepare("UPDATE research_jobs SET event_seq = event_seq + 1 WHERE id=?").bind(jobId),
+    db.prepare("INSERT INTO research_job_events (id,job_id,sequence,event_type,payload_json,created_at) SELECT ?,?,event_seq,?,?,? FROM research_jobs WHERE id=?").bind(crypto.randomUUID(), jobId, type, JSON.stringify(payload), now, jobId),
+  ]);
 }
 
 export async function listEvents(workspaceId: string, jobId: string, after = 0) {

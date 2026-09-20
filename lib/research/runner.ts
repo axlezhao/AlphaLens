@@ -63,7 +63,13 @@ export async function claimNextJob(workerId: string): Promise<ClaimedJob | null>
  */
 async function finishIfHeld(job: ClaimedJob, status: "succeeded" | "failed" | "cancelled", extra: { snapshotJson?: string; errorCode?: string; errorMessage?: string }): Promise<boolean> {
   const now = new Date().toISOString();
-  const result = await getD1().prepare("UPDATE research_jobs SET status=?,snapshot_json=?,completed_at=?,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,error_code=?,error_message=?,updated_at=? WHERE id=? AND status='running' AND lease_token=? AND lease_expires_at>?")
+  // For the cancelled transition we require cancel_requested_at IS NOT NULL so
+  // that only a worker who can see the cancel flag finalises it — this prevents
+  // a stale worker from retroactively cancelling a job that the current holder
+  // is still legitimately running. For succeeded/failed the condition is just
+  // status + token + unexpired lease + no cancel request pending.
+  const cancelGuard = status === "cancelled" ? "AND cancel_requested_at IS NOT NULL" : "AND cancel_requested_at IS NULL";
+  const result = await getD1().prepare(`UPDATE research_jobs SET status=?,snapshot_json=?,completed_at=?,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,error_code=?,error_message=?,updated_at=? WHERE id=? AND status='running' AND lease_token=? AND lease_expires_at>? ${cancelGuard}`)
     .bind(status, extra.snapshotJson ?? null, now, extra.errorCode ?? null, extra.errorMessage ?? null, now, job.id, job.leaseToken, now).run();
   return (result.meta.changes ?? 0) > 0;
 }
@@ -94,14 +100,25 @@ export async function executeJob(job: ClaimedJob) {
     if (retryable && job.attempts < job.maxAttempts) {
       // A retryable failure only releases the job if we still hold the lease.
       const next = new Date(Date.now() + backoffDelayMs(job.attempts)).toISOString();
-      const released = await db.prepare("UPDATE research_jobs SET status='retrying',next_run_at=?,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,error_code=?,error_message=?,updated_at=? WHERE id=? AND status='running' AND lease_token=? AND lease_expires_at>?").bind(next, code, summary, new Date().toISOString(), job.id, job.leaseToken, new Date().toISOString()).run();
+      const released = await db.prepare("UPDATE research_jobs SET status='retrying',next_run_at=?,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,error_code=?,error_message=?,updated_at=? WHERE id=? AND status='running' AND lease_token=? AND lease_expires_at>? AND cancel_requested_at IS NULL").bind(next, code, summary, new Date().toISOString(), job.id, job.leaseToken, new Date().toISOString()).run();
       if (!released.meta.changes) return { id: job.id, status: "stale" };
-      await appendEvent(job.id, "retry_scheduled", { attempt: job.attempts, nextRunAt: next, errorCode: code, error: summary });
+      // Event is written atomically with the status transition in the same batch
+      // so a crash cannot leave a retrying job without its event.
+      await db.batch([
+        db.prepare("UPDATE research_jobs SET event_seq = event_seq + 1 WHERE id=?").bind(job.id),
+        db.prepare("INSERT INTO research_job_events (id,job_id,sequence,event_type,payload_json,created_at) SELECT ?,?,event_seq,?,?,? FROM research_jobs WHERE id=?").bind(crypto.randomUUID(), job.id, "retry_scheduled", JSON.stringify({ attempt: job.attempts, nextRunAt: next, errorCode: code, error: summary }), new Date().toISOString(), job.id),
+      ]);
       return { id: job.id, status: "retrying" };
     }
     const finalCode = retryable ? "ATTEMPTS_EXHAUSTED" : code;
     const held = await finishIfHeld(job, "failed", { errorCode: finalCode, errorMessage: summary });
-    if (held) await appendEvent(job.id, "failed", { errorCode: finalCode, error: summary });
+    if (held) {
+      // Atomically append the failed event in the same transaction.
+      await db.batch([
+        db.prepare("UPDATE research_jobs SET event_seq = event_seq + 1 WHERE id=?").bind(job.id),
+        db.prepare("INSERT INTO research_job_events (id,job_id,sequence,event_type,payload_json,created_at) SELECT ?,?,event_seq,?,?,? FROM research_jobs WHERE id=?").bind(crypto.randomUUID(), job.id, "failed", JSON.stringify({ errorCode: finalCode, error: summary }), new Date().toISOString(), job.id),
+      ]);
+    }
     return { id: job.id, status: held ? "failed" : "stale" };
   }
 }
@@ -150,16 +167,24 @@ async function collectAndPersist(job: ClaimedJob) {
   const snapshot = { schemaVersion: 1, sourceMode: fixtureMode ? "fixture" : "live", ticker: job.ticker, question: job.question, asOf: job.asOf, generatedAt: new Date().toISOString(), providerPlan: plan.map((item) => ({ capability: item.request.capability, selected: item.selected?.provider ?? null, fallbacks: item.fallbacks.map((route) => route.provider), rejected: item.rejected, explanation: item.explanation })), sources: fulfilled.map(compactEnvelope), warnings: failures };
   const snapshotJson = JSON.stringify(snapshot);
   const now = new Date().toISOString();
-  // Final transition is CAS-guarded by lease token: if the worker lost its lease
-  // (or the job was cancelled), zero rows change and we must not enqueue a
-  // research.completed outbox delivery or mark the job succeeded.
-  const finalised = await db.prepare("UPDATE research_jobs SET status='succeeded',snapshot_json=?,completed_at=?,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=? WHERE id=? AND status='running' AND lease_token=? AND lease_expires_at>?").bind(snapshotJson, now, now, job.id, job.leaseToken, now).run();
+  // Final transition is CAS-guarded by lease token AND requires cancel_requested_at
+  // to still be NULL — a cancel that arrives between the mid-flight re-check
+  // (line 133) and this UPDATE still wins. Zero changes means the worker lost
+  // the lease or the job was cancelled; no outbox event or event row must follow.
+  const finalised = await db.prepare("UPDATE research_jobs SET status='succeeded',snapshot_json=?,completed_at=?,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=? WHERE id=? AND status='running' AND lease_token=? AND lease_expires_at>? AND cancel_requested_at IS NULL").bind(snapshotJson, now, now, job.id, job.leaseToken, now).run();
   if (!finalised.meta.changes) {
     throw new CancelledDuringExecution();
   }
+  // Outbox deliveries are written in the SAME transaction as the state
+  // transition so a crash between the two cannot leave a succeeded job without
+  // its business event. The `INSERT OR IGNORE` on (subscription_id, event_id)
+  // makes the fan-out idempotent across retries.
   const deliveries = await buildResearchOutboxDeliveries(job.workspaceId, job.id, job.ticker, "succeeded");
-  if (deliveries.length) await db.batch(deliveries);
-  await appendEvent(job.id, "succeeded", { sources: fulfilled.length, warnings: failures });
+  await db.batch([
+    db.prepare("UPDATE research_jobs SET event_seq = event_seq + 1 WHERE id=?").bind(job.id),
+    db.prepare("INSERT INTO research_job_events (id,job_id,sequence,event_type,payload_json,created_at) SELECT ?,?,event_seq,?,?,? FROM research_jobs WHERE id=?").bind(crypto.randomUUID(), job.id, "succeeded", JSON.stringify({ sources: fulfilled.length, warnings: failures }), now, job.id),
+    ...deliveries,
+  ]);
 }
 
 /**

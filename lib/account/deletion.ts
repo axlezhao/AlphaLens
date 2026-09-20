@@ -90,10 +90,16 @@ export async function requestDeletion(userId: string, input: { confirmation: str
   return { id, status: "requested" as const, scheduledFor };
 }
 
-export async function cancelDeletion(userId: string) {
+export async function cancelDeletion(userId: string): Promise<{ status: "cancelled" } | { status: "processing" } | null> {
   const db = getD1();
   const now = new Date().toISOString();
-  const result = await db.prepare("UPDATE deletion_requests SET status='cancelled',cancelled_at=?,completed_at=NULL WHERE user_id=? AND status IN ('requested','processing')").bind(now, userId).run();
+  // Only `requested` deletions are cancellable. A `processing` request is
+  // already being executed by a worker and must not be cancelled (the worker
+  // owns the lease until it completes or fails). We return the current status
+  // so callers can distinguish the two cases.
+  const alreadyProcessing = await db.prepare("SELECT id FROM deletion_requests WHERE user_id=? AND status='processing' LIMIT 1").bind(userId).first<{ id: string }>();
+  if (alreadyProcessing) return { status: "processing" };
+  const result = await db.prepare("UPDATE deletion_requests SET status='cancelled',cancelled_at=?,completed_at=NULL WHERE user_id=? AND status='requested'").bind(now, userId).run();
   if (result.meta.changes) {
     await db.prepare("UPDATE users SET deletion_requested_at=NULL,updated_at=? WHERE id=?").bind(now, userId).run();
     return { status: "cancelled" };
@@ -122,29 +128,37 @@ export async function claimNextDeletion(workerId: string): Promise<DeletionClaim
 }
 
 /**
- * Executes the soft delete for a claimed request. Idempotent: re-running it
- * against an already-anonymized user is a no-op for the PII fields. The email
- * is deliberately retained as a stable identifier so the deleted account
- * cannot silently re-register with the same address; display name is cleared
- * and membership is removed without touching shared workspace data or audit.
+ * Executes the soft delete for a claimed request. Fenced by lease token so a
+ * stale worker whose lease expired (and was reclaimed) cannot still write
+ * tombstones or delete membership. Idempotent: re-running it against an already
+ * anonymized user is a no-op for the PII fields. The email is deliberately
+ * retained as a stable identifier so the deleted account cannot silently
+ * re-register with the same address; display name is cleared and membership is
+ * removed without touching shared workspace data or audit.
  *
  * A personal workspace (sole member) is tombstoned alongside the account; a
  * shared workspace is left intact for its other members.
  */
-export async function executeDeletion(userId: string) {
+export async function executeDeletion(claim: DeletionClaim) {
   const db = getD1(); const now = new Date().toISOString();
-  const personal = await listPersonalWorkspaces(userId);
+  // Pre-flight fencing: verify we still hold the lease and the request is still
+  // processing. If not, the caller should return "stale" without touching any
+  // users/workspaces.
+  const fence = await db.prepare("SELECT id FROM deletion_requests WHERE id=? AND status='processing' AND lease_token=? AND lease_expires_at>?").bind(claim.id, claim.leaseToken, now).first<{ id: string }>();
+  if (!fence) return false;
+  const personal = await listPersonalWorkspaces(claim.userId);
   await db.batch([
-    db.prepare("UPDATE users SET deleted_at=?,display_name=NULL,updated_at=? WHERE id=?").bind(now, now, userId),
-    db.prepare("DELETE FROM workspace_members WHERE user_id=?").bind(userId),
+    db.prepare("UPDATE users SET deleted_at=?,display_name=NULL,updated_at=? WHERE id=?").bind(now, now, claim.userId),
+    db.prepare("DELETE FROM workspace_members WHERE user_id=?").bind(claim.userId),
     ...personal.map((ws) => db.prepare("UPDATE workspaces SET deleted_at=? WHERE id=?").bind(now, ws.workspaceId)),
   ]);
+  return true;
 }
 
-/** Terminal transition guarded by the lease token (compare-and-set). */
+/** Terminal transition guarded by the lease token and unexpired lease (compare-and-set). */
 export async function completeDeletion(id: string, leaseToken: string): Promise<boolean> {
   const now = new Date().toISOString();
-  const result = await getD1().prepare("UPDATE deletion_requests SET status='completed',completed_at=?,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL WHERE id=? AND status='processing' AND lease_token=?").bind(now, id, leaseToken).run();
+  const result = await getD1().prepare("UPDATE deletion_requests SET status='completed',completed_at=?,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL WHERE id=? AND status='processing' AND lease_token=? AND lease_expires_at>?").bind(now, id, leaseToken, now).run();
   if ((result.meta.changes ?? 0) > 0) {
     await auditDeletion("account.deletion.completed", id, {});
     return true;
@@ -162,16 +176,16 @@ export async function failDeletion(id: string, leaseToken: string, error: unknow
   const db = getD1(); const now = new Date().toISOString();
   const message = error instanceof Error ? error.message : String(error);
   const summary = message.slice(0, 1000);
-  const row = await db.prepare("SELECT attempts,max_attempts AS maxAttempts FROM deletion_requests WHERE id=? AND status='processing' AND lease_token=?").bind(id, leaseToken).first<{ attempts: number; maxAttempts: number }>();
+  const row = await db.prepare("SELECT attempts,max_attempts AS maxAttempts FROM deletion_requests WHERE id=? AND status='processing' AND lease_token=? AND lease_expires_at>?").bind(id, leaseToken, now).first<{ attempts: number; maxAttempts: number }>();
   if (!row) return "stale";
   if (retryable && row.attempts < row.maxAttempts) {
     const next = new Date(Date.now() + 1000 * 2 ** Math.max(0, row.attempts - 1)).toISOString();
-    await db.prepare("UPDATE deletion_requests SET status='requested',next_attempt_at=?,scheduled_for=?,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,error_code='RETRYABLE',error_message=? WHERE id=? AND status='processing' AND lease_token=?").bind(next, next, summary, id, leaseToken).run();
+    await db.prepare("UPDATE deletion_requests SET status='requested',next_attempt_at=?,scheduled_for=?,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,error_code='RETRYABLE',error_message=? WHERE id=? AND status='processing' AND lease_token=? AND lease_expires_at>?").bind(next, next, summary, id, leaseToken, now).run();
     await auditDeletion("account.deletion.retried", id, { attempt: row.attempts });
     return "retrying";
   }
   const finalCode = retryable ? "ATTEMPTS_EXHAUSTED" : "DELETION_FAILED";
-  await db.prepare("UPDATE deletion_requests SET status='rejected',error_code=?,error_message=?,completed_at=?,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL WHERE id=? AND status='processing' AND lease_token=?").bind(finalCode, summary, now, id, leaseToken).run();
+  await db.prepare("UPDATE deletion_requests SET status='rejected',error_code=?,error_message=?,completed_at=?,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL WHERE id=? AND status='processing' AND lease_token=? AND lease_expires_at>?").bind(finalCode, summary, now, id, leaseToken, now).run();
   await auditDeletion("account.deletion.rejected", id, { errorCode: finalCode });
   return "rejected";
 }

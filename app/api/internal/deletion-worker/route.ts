@@ -29,8 +29,8 @@ export async function POST(request: Request) {
         results.push({ id: claim.id, status: "rejected" });
         continue;
       }
-      await executeDeletion(claim.userId);
-      const completed = await completeDeletion(claim.id, claim.leaseToken);
+      const executed = await executeDeletion(claim);
+      const completed = executed ? await completeDeletion(claim.id, claim.leaseToken) : false;
       results.push({ id: claim.id, status: completed ? "completed" : "stale" });
     } catch (error) {
       const outcome = await failDeletion(claim.id, claim.leaseToken, error, true);

@@ -87,7 +87,7 @@ describe("account deletion (A3.3)", () => {
     await getDb().prepare("UPDATE deletion_requests SET scheduled_for=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), result.id).run();
     const claim = await claimNextDeletion("worker-1");
     assert.equal(claim?.userId, user.userId);
-    await executeDeletion(claim!.userId);
+    await executeDeletion(claim!);
     await completeDeletion(claim!.id, claim!.leaseToken);
 
     const deleted = await getDb().prepare("SELECT deleted_at AS deletedAt,display_name AS displayName FROM users WHERE id=?").bind(user.userId).first<{ deletedAt: string | null; displayName: string | null }>();
@@ -103,7 +103,7 @@ describe("account deletion (A3.3)", () => {
     assert.equal(ownerStillMember?.c, 1);
 
     // Idempotent: re-running the delete is a safe no-op.
-    await executeDeletion(user.userId);
+    await executeDeletion({ ...claim!, leaseToken: claim!.leaseToken });
     const again = await getDb().prepare("SELECT deleted_at AS deletedAt FROM users WHERE id=?").bind(user.userId).first<{ deletedAt: string | null }>();
     assert.ok(again?.deletedAt);
   });
@@ -111,7 +111,13 @@ describe("account deletion (A3.3)", () => {
   it("blocks a deleted user from re-authenticating", async () => {
     asUser("delete-verify@local.invalid");
     const user = await requireAuthenticatedUser(apiRequest("/api/v1/workbench"));
-    await executeDeletion(user.userId);
+    // Create and claim a deletion request so executeDeletion's fencing succeeds.
+    const req = await requestDeletion(user.userId, { confirmation: "DELETE" });
+    await getDb().prepare("UPDATE deletion_requests SET scheduled_for=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), req.id).run();
+    const claim = await claimNextDeletion("worker-1");
+    assert.ok(claim);
+    await executeDeletion(claim);
+    await completeDeletion(claim!.id, claim!.leaseToken);
     asUser("delete-verify@local.invalid");
     await assert.rejects(
       () => requireAuthenticatedUser(apiRequest("/api/v1/workbench")),
@@ -135,7 +141,7 @@ describe("account deletion (A3.3)", () => {
     await getDb().prepare("UPDATE deletion_requests SET scheduled_for=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), result.id).run();
     const claim = await claimNextDeletion("worker-1");
     assert.equal(claim?.userId, user.userId);
-    await executeDeletion(claim!.userId);
+    await executeDeletion(claim!);
     await completeDeletion(claim!.id, claim!.leaseToken);
     const deleted = await getDb().prepare("SELECT deleted_at AS deletedAt FROM users WHERE id=?").bind(user.userId).first<{ deletedAt: string | null }>();
     assert.ok(deleted?.deletedAt);
@@ -157,7 +163,7 @@ describe("account deletion (A3.3)", () => {
     // A second worker can now claim and complete it.
     const reclaim = await claimNextDeletion("worker-2");
     assert.equal(reclaim?.userId, user.userId);
-    await executeDeletion(reclaim!.userId);
+    await executeDeletion(reclaim!);
     await completeDeletion(reclaim!.id, reclaim!.leaseToken);
   });
 
@@ -188,12 +194,53 @@ describe("account deletion (A3.3)", () => {
     await recoverExpiredDeletions();
     const b = await claimNextDeletion("worker-b");
     assert.ok(b);
-    await executeDeletion(b!.userId);
+    await executeDeletion(b!);
     await completeDeletion(b!.id, b!.leaseToken);
     // A's stale completion/failure must not change the completed state.
     await completeDeletion(a!.id, a!.leaseToken);
     await failDeletion(a!.id, a!.leaseToken, new Error("late"), true);
     const row = await getDb().prepare("SELECT status FROM deletion_requests WHERE id=?").bind(result.id).first<{ status: string }>();
     assert.equal(row?.status, "completed");
+  });
+
+  it("a stale deletion worker cannot execute tombstone after lease expiry", async () => {
+    asUser("stale-exec@local.invalid");
+    const user = await requireAuthenticatedUser(apiRequest("/api/v1/workbench"));
+    const result = await requestDeletion(user.userId, { confirmation: "DELETE" });
+    await getDb().prepare("UPDATE deletion_requests SET scheduled_for=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), result.id).run();
+    const a = await claimNextDeletion("worker-a");
+    assert.ok(a);
+    // B reclaims before A executes.
+    await getDb().prepare("UPDATE deletion_requests SET lease_expires_at=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), result.id).run();
+    await recoverExpiredDeletions();
+    const b = await claimNextDeletion("worker-b");
+    assert.ok(b);
+    // A tries to execute with its stale claim — should be a no-op (fencing).
+    const wasExecuted = await executeDeletion(a!);
+    assert.equal(wasExecuted, false);
+    // B executes normally.
+    await executeDeletion(b!);
+    await completeDeletion(b!.id, b!.leaseToken);
+    const deleted = await getDb().prepare("SELECT deleted_at AS deletedAt FROM users WHERE id=?").bind(user.userId).first<{ deletedAt: string | null }>();
+    assert.ok(deleted?.deletedAt);
+  });
+
+  it("rejects cancelling a processing deletion with a clear error", async () => {
+    asUser("proc-cancel@local.invalid");
+    const user = await requireAuthenticatedUser(apiRequest("/api/v1/workbench"));
+    const result = await requestDeletion(user.userId, { confirmation: "DELETE" });
+    await getDb().prepare("UPDATE deletion_requests SET scheduled_for=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), result.id).run();
+    await claimNextDeletion("worker-1");
+    // The request is now `processing`; cancel should return 'processing' (not null).
+    const cancelled = await cancelDeletion(user.userId);
+    assert.deepEqual(cancelled, { status: "processing" });
+    // Status remains processing.
+    const row = await getDb().prepare("SELECT status FROM deletion_requests WHERE id=?").bind(result.id).first<{ status: string }>();
+    assert.equal(row?.status, "processing");
+    // Worker can still complete.
+    const claim = await getDb().prepare("SELECT id,user_id AS userId,lease_token AS leaseToken,attempts,max_attempts AS maxAttempts FROM deletion_requests WHERE id=?").bind(result.id).first<{ id: string; userId: string; leaseToken: string; attempts: number; maxAttempts: number }>();
+    assert.ok(claim);
+    await executeDeletion({ id: claim.id, userId: claim.userId, leaseToken: claim.leaseToken, attempts: claim.attempts, maxAttempts: claim.maxAttempts });
+    await completeDeletion(claim.id, claim.leaseToken);
   });
 });

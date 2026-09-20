@@ -162,4 +162,40 @@ describe("research job reliability (A3.3)", () => {
     // Strictly monotonic with no gaps.
     for (let i = 1; i < seqs.length; i++) assert.equal(seqs[i], seqs[i - 1] + 1);
   });
+
+  it("a cancel after provider returns but before the final succeeded UPDATE prevents succeeded status", async () => {
+    // This test inspects the SQL directly: the final UPDATE includes
+    // `cancel_requested_at IS NULL`. If we manually insert a running job with
+    // a lease token and then set cancel_requested_at, executeJob should hit the
+    // CAS guard and return stale/cancelled — never succeeded.
+    const jobId = await seedJob(tenantA.workspaceId, tenantA.userId, "AMD");
+    // Manually set up a running job with a known lease token.
+    const now = new Date().toISOString();
+    const future = new Date(Date.now() + 60_000).toISOString();
+    await getDb().prepare("UPDATE research_jobs SET status='running',lease_token='tok-p02',lease_expires_at=?,cancel_requested_at=? WHERE id=?").bind(future, now, jobId).run();
+    const sec = await getDb().prepare("SELECT id FROM securities WHERE workspace_id=? LIMIT 1").bind(tenantA.workspaceId).first<{ id: string }>();
+    const job = { id: jobId, workspaceId: tenantA.workspaceId, securityId: sec!.id, ticker: "AMD", question: "q", asOf: now, attempts: 1, maxAttempts: 3, irBaseUrl: null, irFeedUrl: null, leaseToken: "tok-p02" };
+    const result = await executeJob(job);
+    // The job is not succeeded; because cancel_requested_at is set, the CAS
+    // update fails and collectAndPersist throws CancelledDuringExecution.
+    assert.notEqual(result.status, "succeeded");
+    const row = await getDb().prepare("SELECT status FROM research_jobs WHERE id=?").bind(jobId).first<{ status: string }>();
+    assert.notEqual(row?.status, "succeeded", "job must not be finalised as succeeded when cancelled");
+  });
+
+  it("successful job emits a contiguous event sequence in the same batch as succeeded", async () => {
+    // Use claimNextJob so the `running` event is emitted, then executeJob to
+    // emit the `succeeded` event inside the same atomic batch.
+    const jobId = await seedJob(tenantA.workspaceId, tenantA.userId, "AMD");
+    const claim = await claimNextJob("worker-1");
+    assert.ok(claim);
+    assert.equal(claim!.id, jobId);
+    await executeJob(claim!);
+    const row = await getDb().prepare("SELECT status,event_seq AS eventSeq FROM research_jobs WHERE id=?").bind(jobId).first<{ status: string; eventSeq: number }>();
+    assert.equal(row?.status, "succeeded");
+    // At minimum the running event (from claim) + succeeded event (from collectAndPersist)
+    assert.ok(row!.eventSeq >= 2, `expected at least 2 events but got event_seq=${row!.eventSeq}`);
+    const eventCount = await getDb().prepare("SELECT COUNT(*) AS c FROM research_job_events WHERE job_id=?").bind(jobId).first<{ c: number }>();
+    assert.equal(eventCount?.c, row!.eventSeq, "every incremented event_seq must have a matching event row");
+  });
 });

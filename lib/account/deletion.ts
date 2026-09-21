@@ -39,17 +39,6 @@ export async function findBlockingOwnership(userId: string): Promise<{ workspace
 }
 
 /** A workspace is personal when the user is its controlling owner and sole member. */
-export async function listPersonalWorkspaces(userId: string): Promise<Array<{ workspaceId: string; name: string }>> {
-  const rows = await getD1().prepare("SELECT w.id AS workspaceId,w.name FROM workspaces w WHERE w.owner_user_id=? AND (SELECT COUNT(*) FROM workspace_members m WHERE m.workspace_id=w.id) = 1").bind(userId).all<{ workspaceId: string; name: string }>();
-  return rows.results;
-}
-
-/**
- * Ownership re-check used by the worker right before executing deletion. If the
- * user has become the controlling owner of a shared workspace *after* the
- * request was created (e.g. they were transferred ownership), the deletion is
- * aborted to avoid destroying another member's workspace.
- */
 export async function hasSharedControllingOwnership(userId: string): Promise<boolean> {
   return (await findBlockingOwnership(userId)) !== null;
 }
@@ -128,31 +117,40 @@ export async function claimNextDeletion(workerId: string): Promise<DeletionClaim
 }
 
 /**
- * Executes the soft delete for a claimed request. Fenced by lease token so a
- * stale worker whose lease expired (and was reclaimed) cannot still write
- * tombstones or delete membership. Idempotent: re-running it against an already
- * anonymized user is a no-op for the PII fields. The email is deliberately
- * retained as a stable identifier so the deleted account cannot silently
- * re-register with the same address; display name is cleared and membership is
- * removed without touching shared workspace data or audit.
+ * Executes the soft delete for a claimed request. Every side effect is fenced
+ * by the SAME atomic condition (request `processing` + matching unexpired lease
+ * token + belongs to the target user + user has no shared controlling
+ * ownership), so there is no select-then-write TOCTOU window: if the fence fails
+ * at the moment of execution, all statements affect zero rows and no
+ * user/membership/workspace mutation lands. Idempotent: re-running against an
+ * already-anonymized user is a no-op for the PII fields.
  *
  * A personal workspace (sole member) is tombstoned alongside the account; a
  * shared workspace is left intact for its other members.
  */
-export async function executeDeletion(claim: DeletionClaim) {
+export async function executeDeletion(claim: DeletionClaim): Promise<boolean> {
   const db = getD1(); const now = new Date().toISOString();
-  // Pre-flight fencing: verify we still hold the lease and the request is still
-  // processing. If not, the caller should return "stale" without touching any
-  // users/workspaces.
-  const fence = await db.prepare("SELECT id FROM deletion_requests WHERE id=? AND status='processing' AND lease_token=? AND lease_expires_at>?").bind(claim.id, claim.leaseToken, now).first<{ id: string }>();
-  if (!fence) return false;
-  const personal = await listPersonalWorkspaces(claim.userId);
-  await db.batch([
-    db.prepare("UPDATE users SET deleted_at=?,display_name=NULL,updated_at=? WHERE id=?").bind(now, now, claim.userId),
-    db.prepare("DELETE FROM workspace_members WHERE user_id=?").bind(claim.userId),
-    ...personal.map((ws) => db.prepare("UPDATE workspaces SET deleted_at=? WHERE id=?").bind(now, ws.workspaceId)),
+  // Single fence fragment reused by every side-effect statement. It verifies the
+  // request id, the target user, the processing status, an unexpired lease token
+  // held by this worker, and that the user does not (still) own a shared
+  // workspace with other members. Because each mutation carries this guard
+  // directly in its WHERE clause, no side effect can outrun the fence.
+  const fence = "EXISTS (SELECT 1 FROM deletion_requests dr WHERE dr.id = ? AND dr.user_id = ? AND dr.status = 'processing' AND dr.lease_token = ? AND dr.lease_expires_at > ? AND NOT EXISTS (SELECT 1 FROM workspaces w WHERE w.owner_user_id = dr.user_id AND (SELECT COUNT(*) FROM workspace_members m WHERE m.workspace_id = w.id) > 1))";
+  const fenceBind: (string | number | null)[] = [claim.id, claim.userId, claim.leaseToken, now];
+
+  const results = await db.batch([
+    db.prepare(`UPDATE users SET deleted_at = ?, display_name = NULL, updated_at = ? WHERE id = ? AND ${fence}`).bind(now, now, claim.userId, ...fenceBind),
+    // Delete only memberships the user does NOT own: a controlling-owner
+    // membership is immutable at the DB boundary (trigger guard) and its
+    // personal workspace is tombstoned below instead. This keeps shared
+    // workspaces and their other members intact while the user is removed.
+    db.prepare(`DELETE FROM workspace_members WHERE user_id = ? AND workspace_id NOT IN (SELECT id FROM workspaces WHERE owner_user_id = ?) AND ${fence}`).bind(claim.userId, claim.userId, ...fenceBind),
+    db.prepare(`UPDATE workspaces SET deleted_at = ? WHERE owner_user_id = ? AND (SELECT COUNT(*) FROM workspace_members m WHERE m.workspace_id = workspaces.id) = 1 AND ${fence}`).bind(now, claim.userId, ...fenceBind),
   ]);
-  return true;
+
+  // The user tombstone only lands when the fence held; it is the leading
+  // indicator of whether execution had any effect.
+  return (results[0].meta.changes ?? 0) > 0;
 }
 
 /** Terminal transition guarded by the lease token and unexpired lease (compare-and-set). */

@@ -188,11 +188,16 @@ async function collectAndPersist(job: ClaimedJob) {
 }
 
 /**
- * Recovers work orphaned by a crashed worker and enforces deadlines.
- *  - A running job with a pending cancel becomes cancelled (with event).
- *  - A running job whose lease expired becomes retrying (or failed if its
- *    attempts are exhausted).
- *  - Any non-terminal, non-cancelled job past its timeout becomes failed.
+ * Recovers work orphaned by a crashed worker and enforces deadlines. Every
+ * state change below is written in the SAME batch as its matching immutable
+ * event (guarded transition + `event_seq` increment + event insert), so the
+ * timeline/audit always records why a job moved.
+ *  - A running job with a pending cancel becomes cancelled (exactly one
+ *    `cancelled` event).
+ *  - A running job whose lease expired becomes retrying (attempts remain) or
+ *    failed (attempts exhausted), each with its recovery event.
+ *  - A non-terminal, non-cancelled job past its timeout becomes failed with a
+ *    timeout event.
  */
 export async function recoverExpiredJobs() {
   const db = getD1(); const now = new Date().toISOString();
@@ -204,10 +209,31 @@ export async function recoverExpiredJobs() {
       db.prepare("INSERT OR IGNORE INTO research_job_events (id,job_id,sequence,event_type,payload_json,created_at) SELECT ?,?,event_seq,'cancelled',?,? FROM research_jobs WHERE id=? AND status='cancelled'").bind(crypto.randomUUID(), row.id, JSON.stringify({ reason: "lease_expired" }), now, row.id),
     ]);
   }
-  // 2. Expired running jobs without a cancel → retrying/failed.
-  await db.prepare("UPDATE research_jobs SET status=CASE WHEN attempts>=max_attempts THEN 'failed' ELSE 'retrying' END,error_code='LEASE_EXPIRED',error_message='Worker lease expired; job recovered',lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,next_run_at=?,updated_at=? WHERE status='running' AND lease_expires_at<? AND cancel_requested_at IS NULL").bind(now, now, now).run();
-  // 3. Timeout (non-cancelled) → failed.
-  await db.prepare("UPDATE research_jobs SET status='failed',error_code='TIMEOUT',error_message='Research job exceeded deadline',completed_at=?,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=? WHERE status IN ('queued','retrying','running') AND timeout_at<? AND cancel_requested_at IS NULL").bind(now, now, now).run();
+  // 2. Expired running jobs without a cancel → retrying (attempts remain) or
+  //    failed (attempts exhausted). Each transition and its event are atomic and
+  //    guarded on `status='running'` so a concurrent recovery cannot double-write.
+  const leaseRows = await db.prepare("SELECT id,attempts,max_attempts AS maxAttempts FROM research_jobs WHERE status='running' AND lease_expires_at<? AND cancel_requested_at IS NULL").bind(now).all<{ id: string; attempts: number; maxAttempts: number }>();
+  for (const row of leaseRows.results) {
+    if (row.attempts >= row.maxAttempts) {
+      await db.batch([
+        db.prepare("UPDATE research_jobs SET status='failed',error_code='LEASE_EXPIRED',error_message='Worker lease expired; attempts exhausted',completed_at=?,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,event_seq=event_seq+1,updated_at=? WHERE id=? AND status='running' AND cancel_requested_at IS NULL").bind(now, now, row.id),
+        db.prepare("INSERT OR IGNORE INTO research_job_events (id,job_id,sequence,event_type,payload_json,created_at) SELECT ?,?,event_seq,'failed',?,? FROM research_jobs WHERE id=? AND status='failed'").bind(crypto.randomUUID(), row.id, JSON.stringify({ errorCode: "LEASE_EXPIRED", reason: "attempts_exhausted" }), now, row.id),
+      ]);
+    } else {
+      await db.batch([
+        db.prepare("UPDATE research_jobs SET status='retrying',next_run_at=?,error_code='LEASE_EXPIRED',error_message='Worker lease expired; job recovered',lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,event_seq=event_seq+1,updated_at=? WHERE id=? AND status='running' AND cancel_requested_at IS NULL").bind(now, now, row.id),
+        db.prepare("INSERT OR IGNORE INTO research_job_events (id,job_id,sequence,event_type,payload_json,created_at) SELECT ?,?,event_seq,'lease_expired_recovered',?,? FROM research_jobs WHERE id=? AND status='retrying'").bind(crypto.randomUUID(), row.id, JSON.stringify({ errorCode: "LEASE_EXPIRED", nextRunAt: now }), now, row.id),
+      ]);
+    }
+  }
+  // 3. Timeout (non-cancelled) → failed, atomic with its timeout event.
+  const timeoutRows = await db.prepare("SELECT id FROM research_jobs WHERE status IN ('queued','retrying','running') AND timeout_at<? AND cancel_requested_at IS NULL").bind(now).all<{ id: string }>();
+  for (const row of timeoutRows.results) {
+    await db.batch([
+      db.prepare("UPDATE research_jobs SET status='failed',error_code='TIMEOUT',error_message='Research job exceeded deadline',completed_at=?,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,event_seq=event_seq+1,updated_at=? WHERE id=? AND status IN ('queued','retrying','running') AND timeout_at<? AND cancel_requested_at IS NULL").bind(now, now, row.id, now),
+      db.prepare("INSERT OR IGNORE INTO research_job_events (id,job_id,sequence,event_type,payload_json,created_at) SELECT ?,?,event_seq,'failed',?,? FROM research_jobs WHERE id=? AND status='failed'").bind(crypto.randomUUID(), row.id, JSON.stringify({ errorCode: "TIMEOUT", reason: "timeout" }), now, row.id),
+    ]);
+  }
 }
 
 function compactEnvelope(envelope: ProviderEnvelope<unknown>) { return { provider: envelope.provider, asOf: envelope.asOf, fetchedAt: envelope.fetchedAt, staleAt: envelope.staleAt, freshness: envelope.freshness, cache: envelope.cache, sourceUrl: envelope.sourceUrl, licenseScope: envelope.licenseScope, data: envelope.data }; }

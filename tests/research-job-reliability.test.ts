@@ -258,4 +258,63 @@ describe("research job reliability (A3.3)", () => {
     const cancelledEvents = await getDb().prepare("SELECT COUNT(*) AS c FROM research_job_events WHERE job_id=? AND event_type='cancelled'").bind(jobId).first<{ c: number }>();
     assert.equal(cancelledEvents?.c, 0, "a lease-lost worker must not write a cancelled event");
   });
+
+  it("lease-expired recovery (attempts remain) emits a retrying event atomically", async () => {
+    const jobId = await seedJob(tenantA.workspaceId, tenantA.userId, "AMD", { status: "running", attempts: 1, lease_owner: "crashed", lease_expires_at: new Date(Date.now() - 1000).toISOString() });
+    await recoverExpiredJobs();
+    const row = await getDb().prepare("SELECT status,event_seq AS eventSeq,error_code AS errorCode FROM research_jobs WHERE id=?").bind(jobId).first<{ status: string; eventSeq: number; errorCode: string | null }>();
+    assert.equal(row?.status, "retrying");
+    assert.equal(row?.errorCode, "LEASE_EXPIRED");
+    const events = await getDb().prepare("SELECT event_type AS eventType FROM research_job_events WHERE job_id=? ORDER BY sequence").bind(jobId).all<{ eventType: string }>();
+    assert.equal(events.results.length, 1);
+    assert.equal(events.results[0].eventType, "lease_expired_recovered");
+    // event_seq equals the number of event rows (no gap).
+    assert.equal(row!.eventSeq, events.results.length);
+  });
+
+  it("lease-expired recovery (attempts exhausted) emits a failed event atomically", async () => {
+    const jobId = await seedJob(tenantA.workspaceId, tenantA.userId, "AMD", { status: "running", attempts: 3, max_attempts: 3, lease_expires_at: new Date(Date.now() - 1000).toISOString() });
+    await recoverExpiredJobs();
+    const row = await getDb().prepare("SELECT status,event_seq AS eventSeq FROM research_jobs WHERE id=?").bind(jobId).first<{ status: string; eventSeq: number }>();
+    assert.equal(row?.status, "failed");
+    const events = await getDb().prepare("SELECT event_type AS eventType FROM research_job_events WHERE job_id=? ORDER BY sequence").bind(jobId).all<{ eventType: string }>();
+    assert.equal(events.results.length, 1);
+    assert.equal(events.results[0].eventType, "failed");
+    assert.equal(row!.eventSeq, events.results.length);
+  });
+
+  it("timeout recovery emits a failed event atomically with errorCode TIMEOUT", async () => {
+    const jobId = await seedJob(tenantA.workspaceId, tenantA.userId, "AMD", { status: "queued", timeout_at: new Date(Date.now() - 1000).toISOString() });
+    await recoverExpiredJobs();
+    const row = await getDb().prepare("SELECT status,event_seq AS eventSeq,error_code AS errorCode FROM research_jobs WHERE id=?").bind(jobId).first<{ status: string; eventSeq: number; errorCode: string | null }>();
+    assert.equal(row?.status, "failed");
+    assert.equal(row?.errorCode, "TIMEOUT");
+    const events = await getDb().prepare("SELECT event_type AS eventType FROM research_job_events WHERE job_id=? ORDER BY sequence").bind(jobId).all<{ eventType: string }>();
+    assert.equal(events.results.length, 1);
+    assert.equal(events.results[0].eventType, "failed");
+    assert.equal(row!.eventSeq, events.results.length);
+  });
+
+  it("concurrent recovery writes at most one transition and event, gap-free", async () => {
+    const jobId = await seedJob(tenantA.workspaceId, tenantA.userId, "AMD", { status: "running", attempts: 1, lease_expires_at: new Date(Date.now() - 1000).toISOString() });
+    // Two workers race to recover the same job.
+    await Promise.all([recoverExpiredJobs(), recoverExpiredJobs()]);
+    const row = await getDb().prepare("SELECT status,event_seq AS eventSeq FROM research_jobs WHERE id=?").bind(jobId).first<{ status: string; eventSeq: number }>();
+    assert.equal(row?.status, "retrying");
+    const events = await getDb().prepare("SELECT sequence FROM research_job_events WHERE job_id=? ORDER BY sequence").bind(jobId).all<{ sequence: number }>();
+    assert.equal(events.results.length, 1, "exactly one recovery event");
+    assert.equal(row!.eventSeq, events.results.length, "event_seq must equal event row count");
+  });
+
+  it("a cancelled job recovered by lease expiry stays cancelled with exactly one cancelled event", async () => {
+    const jobId = await seedJob(tenantA.workspaceId, tenantA.userId, "AMD", { status: "running", attempts: 1, cancel_requested_at: new Date().toISOString(), lease_expires_at: new Date(Date.now() - 1000).toISOString() });
+    await recoverExpiredJobs();
+    const row = await getDb().prepare("SELECT status,event_seq AS eventSeq FROM research_jobs WHERE id=?").bind(jobId).first<{ status: string; eventSeq: number }>();
+    assert.equal(row?.status, "cancelled");
+    const cancelledEvents = await getDb().prepare("SELECT COUNT(*) AS c FROM research_job_events WHERE job_id=? AND event_type='cancelled'").bind(jobId).first<{ c: number }>();
+    assert.equal(cancelledEvents?.c, 1, "exactly one cancelled event");
+    const retryOrFail = await getDb().prepare("SELECT COUNT(*) AS c FROM research_job_events WHERE job_id=? AND event_type IN ('retry_scheduled','lease_expired_recovered','failed')").bind(jobId).first<{ c: number }>();
+    assert.equal(retryOrFail?.c, 0, "no retry/failed recovery event for a cancelled job");
+    assert.equal(row!.eventSeq, 1, "event_seq equals the single cancelled event");
+  });
 });

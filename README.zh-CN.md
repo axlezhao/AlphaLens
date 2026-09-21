@@ -74,7 +74,7 @@ pnpm db:local:verify-integrity
 
 下一阶段优先级：
 
-1. 加固出站请求、删除流程及 Workflow 生命周期。A3.2 已交付请求级 RBAC（`requireWorkspaceAccess` / `requirePortfolioAccess` / `listAccessibleWorkspaces`）、全部路由的双租户 HTTP 测试、成员管理 API，以及原子化的控制性 Owner 转移（目标须为已有成员）。A3.3 已交付可恢复的研究任务状态机（原子 lease 领取 + lease token、有限重试、lease 回收、取消确定进入 `cancelled` 终态、状态与事件/Outbox 在同一事务提交）、at-least-once 的 Webhook Outbox（防 SSRF URL 校验、lease token + compare-and-set、状态与事件与投递同事务、原始响应体不落库），以及区分个人/共享 Workspace 的安全账户删除后台工作流（副作用原子 fencing）。通知 Outbox 尚未达到 Webhook 级的 lease/CAS 投递保护，不作为「可靠投递通知」承诺。仍未完成：托管队列、生产 OAuth/SSO、监控告警、合规审批的数据保留策略、通知的 Webhook 级可靠投递。
+1. 加固出站请求、删除流程及 Workflow 生命周期。A3.2 已交付请求级 RBAC（`requireWorkspaceAccess` / `requirePortfolioAccess` / `listAccessibleWorkspaces`）、全部路由的双租户 HTTP 测试、成员管理 API，以及原子化的控制性 Owner 转移（目标须为已有成员）。A3.3 已交付可恢复的研究任务状态机（原子 lease 领取 + lease token、有限重试、lease 回收、取消确定进入 `cancelled` 终态、状态与事件/Outbox 在同一事务提交，lease 过期恢复、attempts 耗尽、timeout 与 cancelled recovery 均在同一原子边界写对应 event）、at-least-once 的 Webhook Outbox（防 SSRF URL 校验、lease token + compare-and-set、状态与事件与投递同事务、原始响应体不落库），以及区分个人/共享 Workspace 的安全账户删除后台工作流（副作用原子 fencing）。通知 Outbox 尚未达到 Webhook 级的 lease/CAS 投递保护，不作为「可靠投递通知」承诺。仍未完成：托管队列、生产 OAuth/SSO、监控告警、合规审批的数据保留策略、通知的 Webhook 级可靠投递。
 2. 将结果页扩展为可引用的研究草稿与人工 Review 流程。
 3. 再接模型、构建真实评估集，验证自动研究的质量。
 

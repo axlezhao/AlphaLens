@@ -198,4 +198,64 @@ describe("research job reliability (A3.3)", () => {
     const eventCount = await getDb().prepare("SELECT COUNT(*) AS c FROM research_job_events WHERE job_id=?").bind(jobId).first<{ c: number }>();
     assert.equal(eventCount?.c, row!.eventSeq, "every incremented event_seq must have a matching event row");
   });
+
+  it("finalizes a mid-flight cancel to cancelled with exactly one cancelled event", async () => {
+    // A running job whose cancel flag is set must land in cancelled, with one
+    // cancelled event and no succeeded event.
+    const jobId = await seedJob(tenantA.workspaceId, tenantA.userId, "AMD", { status: "running", attempts: 1, cancel_requested_at: new Date().toISOString(), lease_token: "tok-c3", lease_expires_at: new Date(Date.now() + 60_000).toISOString() });
+    const sec = await getDb().prepare("SELECT id FROM securities WHERE workspace_id=? LIMIT 1").bind(tenantA.workspaceId).first<{ id: string }>();
+    const job = { id: jobId, workspaceId: tenantA.workspaceId, securityId: sec!.id, ticker: "AMD", question: "q", asOf: new Date().toISOString(), attempts: 1, maxAttempts: 3, irBaseUrl: null, irFeedUrl: null, leaseToken: "tok-c3" };
+    const result = await executeJob(job);
+    assert.equal(result.status, "cancelled");
+    const row = await getDb().prepare("SELECT status FROM research_jobs WHERE id=?").bind(jobId).first<{ status: string }>();
+    assert.equal(row?.status, "cancelled");
+    const cancelledEvents = await getDb().prepare("SELECT COUNT(*) AS c FROM research_job_events WHERE job_id=? AND event_type='cancelled'").bind(jobId).first<{ c: number }>();
+    assert.equal(cancelledEvents?.c, 1, "exactly one cancelled event");
+    const succeededEvents = await getDb().prepare("SELECT COUNT(*) AS c FROM research_job_events WHERE job_id=? AND event_type='succeeded'").bind(jobId).first<{ c: number }>();
+    assert.equal(succeededEvents?.c, 0, "no succeeded event");
+  });
+
+  it("recovers an expired lease of a cancelled running job as cancelled", async () => {
+    const jobId = await seedJob(tenantA.workspaceId, tenantA.userId, "AMD", { status: "running", attempts: 1, cancel_requested_at: new Date().toISOString(), lease_expires_at: new Date(Date.now() - 1000).toISOString() });
+    await recoverExpiredJobs();
+    const row = await getDb().prepare("SELECT status FROM research_jobs WHERE id=?").bind(jobId).first<{ status: string }>();
+    assert.equal(row?.status, "cancelled");
+    const cancelledEvents = await getDb().prepare("SELECT COUNT(*) AS c FROM research_job_events WHERE job_id=? AND event_type='cancelled'").bind(jobId).first<{ c: number }>();
+    assert.equal(cancelledEvents?.c, 1);
+  });
+
+  it("re-running completion does not create duplicate succeeded events or deliveries", async () => {
+    // Seed a subscription so the succeeded fan-out creates one delivery.
+    const subId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    await getDb().prepare("INSERT INTO webhook_subscriptions (id,workspace_id,name,endpoint_url,event_types_json,secret_ciphertext,secret_iv,enabled,verification_status,consecutive_failures,created_at,updated_at) VALUES (?,?,?,?,?,?,?,1,'verified',0,?,?)").bind(subId, tenantA.workspaceId, "sub", "https://example.com/hook", JSON.stringify(["research.completed"]), "c", "i", now, now).run();
+    const jobId = await seedJob(tenantA.workspaceId, tenantA.userId, "AMD");
+    const claim = await claimNextJob("worker-1");
+    assert.ok(claim);
+    const first = await executeJob(claim!);
+    assert.equal(first.status, "succeeded");
+    // Already terminal: a second execution must not duplicate anything.
+    const second = await executeJob(claim!);
+    assert.equal(second.status, "stale");
+    const succeededEvents = await getDb().prepare("SELECT COUNT(*) AS c FROM research_job_events WHERE job_id=? AND event_type='succeeded'").bind(jobId).first<{ c: number }>();
+    assert.equal(succeededEvents?.c, 1, "exactly one succeeded event");
+    const deliveries = await getDb().prepare("SELECT COUNT(*) AS c FROM webhook_deliveries WHERE event_id=?").bind(`${jobId}:research.completed`).first<{ c: number }>();
+    assert.equal(deliveries?.c, 1, "exactly one outbox delivery");
+  });
+
+  it("a lease-lost worker returns stale, not cancelled", async () => {
+    const jobId = await seedJob(tenantA.workspaceId, tenantA.userId, "AMD");
+    const a = await claimNextJob("worker-a");
+    assert.ok(a);
+    // A's lease expires; B reclaims.
+    await getDb().prepare("UPDATE research_jobs SET lease_expires_at=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), jobId).run();
+    await recoverExpiredJobs();
+    const b = await claimNextJob("worker-b");
+    assert.ok(b);
+    // A's stale finalize must be stale (not cancelled, not succeeded).
+    const result = await executeJob({ ...a!, leaseToken: a!.leaseToken });
+    assert.equal(result.status, "stale");
+    const cancelledEvents = await getDb().prepare("SELECT COUNT(*) AS c FROM research_job_events WHERE job_id=? AND event_type='cancelled'").bind(jobId).first<{ c: number }>();
+    assert.equal(cancelledEvents?.c, 0, "a lease-lost worker must not write a cancelled event");
+  });
 });

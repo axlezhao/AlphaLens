@@ -243,4 +243,69 @@ describe("account deletion (A3.3)", () => {
     await executeDeletion({ id: claim.id, userId: claim.userId, leaseToken: claim.leaseToken, attempts: claim.attempts, maxAttempts: claim.maxAttempts });
     await completeDeletion(claim.id, claim.leaseToken);
   });
+
+  it("does not delete a user who gains shared ownership after the request", async () => {
+    asUser("gain-owner@local.invalid");
+    const user = await requireAuthenticatedUser(apiRequest("/api/v1/workbench"));
+    assert.equal(await findBlockingOwnership(user.userId), null);
+    const result = await requestDeletion(user.userId, { confirmation: "DELETE" });
+    await getDb().prepare("UPDATE deletion_requests SET scheduled_for=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), result.id).run();
+    const claim = await claimNextDeletion("worker-1");
+    assert.ok(claim);
+    // After the request, the user becomes the controlling owner of a SHARED
+    // workspace (a second member joins). The atomic fence must block deletion.
+    // Note: inserting the workspace auto-creates the owner membership via a DB
+    // trigger, so we only add the second member explicitly.
+    const now = new Date().toISOString();
+    const otherUserId = crypto.randomUUID();
+    await getDb().batch([
+      getDb().prepare("INSERT INTO users (id,email,display_name,created_at,updated_at) VALUES (?,?,?,?,?)").bind(otherUserId, "other-gain@local.invalid", "Other", now, now),
+      getDb().prepare("INSERT INTO workspaces (id,name,owner_user_id,created_at,updated_at) VALUES (?,?,?,?,?)").bind("ws-gain", "Shared", user.userId, now, now),
+      getDb().prepare("INSERT INTO workspace_members (workspace_id,user_id,role,created_at) VALUES (?,?,?,?)").bind("ws-gain", otherUserId, "editor", now),
+    ]);
+    const executed = await executeDeletion(claim!);
+    assert.equal(executed, false, "the ownership fence must block the deletion");
+    const userRow = await getDb().prepare("SELECT deleted_at AS deletedAt FROM users WHERE id=?").bind(user.userId).first<{ deletedAt: string | null }>();
+    assert.equal(userRow?.deletedAt ?? null, null, "user must not be tombstoned");
+    const sharedWs = await getDb().prepare("SELECT deleted_at AS deletedAt FROM workspaces WHERE id=?").bind("ws-gain").first<{ deletedAt: string | null }>();
+    assert.equal(sharedWs?.deletedAt ?? null, null, "shared workspace must not be tombstoned");
+  });
+
+  it("returns 409 when cancelling a processing deletion via the API", async () => {
+    asUser("proc-cancel-http@local.invalid");
+    const user = await requireAuthenticatedUser(apiRequest("/api/v1/workbench"));
+    const result = await requestDeletion(user.userId, { confirmation: "DELETE" });
+    await getDb().prepare("UPDATE deletion_requests SET scheduled_for=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), result.id).run();
+    await claimNextDeletion("worker-1");
+    asUser("proc-cancel-http@local.invalid");
+    const response = await cancelDelete(apiRequest("/api/v1/account/delete/cancel", { method: "POST" }));
+    assert.equal(response.status, 409);
+    assert.equal(((await responseBody(response))?.error as Record<string, unknown>)?.code, "DELETION_ALREADY_PROCESSING");
+    const row = await getDb().prepare("SELECT status FROM deletion_requests WHERE id=?").bind(result.id).first<{ status: string }>();
+    assert.equal(row?.status, "processing");
+  });
+
+  it("tombstones a sole owner together with their personal workspace", async () => {
+    // provisionTenant creates a real personal workspace (owner + sole member),
+    // so this exercises the controlling-owner path that must tombstone rather
+    // than delete the owner membership (which a DB trigger forbids).
+    const t = await provisionTenant("solo-personal@local.invalid");
+    assert.equal(await findBlockingOwnership(t.userId), null);
+    const result = await requestDeletion(t.userId, { confirmation: "DELETE" });
+    await getDb().prepare("UPDATE deletion_requests SET scheduled_for=? WHERE id=?").bind(new Date(Date.now() - 1000).toISOString(), result.id).run();
+    const claim = await claimNextDeletion("worker-1");
+    assert.ok(claim);
+    await executeDeletion(claim!);
+    await completeDeletion(claim!.id, claim!.leaseToken);
+    const user = await getDb().prepare("SELECT deleted_at AS deletedAt FROM users WHERE id=?").bind(t.userId).first<{ deletedAt: string | null }>();
+    assert.ok(user?.deletedAt, "user must be tombstoned");
+    const ws = await getDb().prepare("SELECT deleted_at AS deletedAt FROM workspaces WHERE id=?").bind(t.workspaceId).first<{ deletedAt: string | null }>();
+    assert.ok(ws?.deletedAt, "personal workspace must be tombstoned");
+    // The user can no longer authenticate.
+    asUser("solo-personal@local.invalid");
+    await assert.rejects(
+      () => requireAuthenticatedUser(apiRequest("/api/v1/workbench")),
+      (error: unknown) => (error as { status: number; code: string }).status === 401 && (error as { code: string }).code === "ACCOUNT_DELETED",
+    );
+  });
 });

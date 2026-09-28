@@ -142,6 +142,8 @@ export type ResearchDraftVersion = {
   artifactId: string; versionId: string; version: number; status: string; checksum: string; asOf: string; createdAt: string;
   verifiedAt: string | null; verifierVersion: string | null; content: unknown;
   issues: DraftIssue[]; issueSummary: ReturnType<typeof summarizeFindings>;
+  /** Latest approval request for this version, if any. */
+  approval: { id: string; status: string; requiredRole: string; decisionNote: string | null; decidedAt: string | null } | null;
 };
 
 async function draftIds(workspaceId: string, jobId: string) {
@@ -186,11 +188,12 @@ async function listIssues(workspaceId: string, versionId: string): Promise<Draft
 /** Latest version of the job's draft artifact with its verification issues, or null. Tenant-scoped. */
 export async function getResearchDraft(workspaceId: string, jobId: string): Promise<ResearchDraftVersion | null> {
   const { artifactId } = await draftIds(workspaceId, jobId);
-  const row = await getD1().prepare("SELECT artifact_id AS artifactId,id AS versionId,version,status,checksum,as_of AS asOf,created_at AS createdAt,verified_at AS verifiedAt,verifier_version AS verifierVersion,content_json AS contentJson FROM research_artifact_versions WHERE artifact_id=? AND workspace_id=? ORDER BY version DESC LIMIT 1").bind(artifactId, workspaceId).first<Omit<ResearchDraftVersion, "content" | "issues" | "issueSummary"> & { contentJson: string }>();
+  const row = await getD1().prepare("SELECT artifact_id AS artifactId,id AS versionId,version,status,checksum,as_of AS asOf,created_at AS createdAt,verified_at AS verifiedAt,verifier_version AS verifierVersion,content_json AS contentJson FROM research_artifact_versions WHERE artifact_id=? AND workspace_id=? ORDER BY version DESC LIMIT 1").bind(artifactId, workspaceId).first<Omit<ResearchDraftVersion, "content" | "issues" | "issueSummary" | "approval"> & { contentJson: string }>();
   if (!row) return null;
   const { contentJson, ...version } = row;
   const issues = await listIssues(workspaceId, version.versionId);
-  return { ...version, content: safeJsonParse(contentJson), issues, issueSummary: summarizeFindings(issues) };
+  const approval = await getD1().prepare("SELECT id,status,required_role AS requiredRole,decision_note AS decisionNote,decided_at AS decidedAt FROM approval_requests WHERE workspace_id=? AND artifact_version_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1").bind(workspaceId, version.versionId).first<NonNullable<ResearchDraftVersion["approval"]>>();
+  return { ...version, content: safeJsonParse(contentJson), issues, issueSummary: summarizeFindings(issues), approval: approval ?? null };
 }
 
 /**
@@ -265,4 +268,26 @@ export async function acknowledgeDraftIssue(context: AuthContext, jobId: string,
   const result = await getD1().prepare("UPDATE verification_issues SET status='acknowledged',resolution_note=?,resolved_by_user_id=?,resolved_at=?,updated_at=? WHERE id=? AND workspace_id=? AND artifact_version_id=? AND status='open' AND severity<>'blocking'").bind(trimmed, context.userId, now, now, issueId, context.workspaceId, draft.versionId).run();
   if (!result.meta.changes) throw new HttpError(409, "ISSUE_NOT_OPEN", "该问题不是待处理状态");
   return (await getResearchDraft(context.workspaceId, jobId))!;
+}
+
+/**
+ * Review gate shared by every approval and publish path. A version with an
+ * open blocking verification issue can be neither approved nor published, and
+ * a research-job draft must have been verified at least once.
+ */
+export async function assertReviewGate(workspaceId: string, versionId: string) {
+  const db = getD1();
+  const version = await db.prepare("SELECT ra.research_job_id AS researchJobId,rav.verified_at AS verifiedAt FROM research_artifact_versions rav JOIN research_artifacts ra ON ra.id=rav.artifact_id WHERE rav.id=? AND rav.workspace_id=?").bind(versionId, workspaceId).first<{ researchJobId: string | null; verifiedAt: string | null }>();
+  if (!version) throw new HttpError(404, "ARTIFACT_VERSION_NOT_FOUND", "研究版本不存在");
+  if (version.researchJobId && !version.verifiedAt) throw new HttpError(409, "UNVERIFIED", "证据草稿尚未完成自动校验");
+  const blocking = await db.prepare("SELECT COUNT(*) AS c FROM verification_issues WHERE workspace_id=? AND artifact_version_id=? AND severity='blocking' AND status='open'").bind(workspaceId, versionId).first<{ c: number }>();
+  if (Number(blocking?.c)) throw new HttpError(409, "BLOCKING_ISSUES", `仍有 ${blocking?.c} 个阻断性校验问题，不能批准或发布`);
+}
+
+/** Research-job drafts are written only by the draft builder, never by generic artifact saves. */
+export async function assertNotManagedDraft(workspaceId: string, logicalId: string | null, content: unknown) {
+  if (content && typeof content === "object" && (content as { kind?: unknown }).kind === "evidence_draft") throw new HttpError(400, "DRAFT_MANAGED", "证据草稿只能由研究任务生成");
+  if (!logicalId) return;
+  const artifact = await getD1().prepare("SELECT research_job_id AS researchJobId FROM research_artifacts WHERE workspace_id=? AND logical_id=?").bind(workspaceId, logicalId).first<{ researchJobId: string | null }>();
+  if (artifact?.researchJobId) throw new HttpError(409, "DRAFT_MANAGED", "证据草稿只能由研究任务生成，不能直接保存新版本");
 }

@@ -1,5 +1,6 @@
 import type { ResearchSnapshot, ResearchSnapshotPlan, ResearchSnapshotSource } from "../lib/research/snapshot";
 import { missingCapabilities } from "../lib/research/snapshot";
+import ResearchDraftPanel from "./research-draft";
 
 export type ResearchResultJob = {
   id: string;
@@ -104,8 +105,10 @@ export default function ResearchResult({ job, onBack }: { job: ResearchResultJob
 
       <section className="result-bottom-grid">
         <article className="panel result-warnings"><div className="panel-head"><div>警告与缺口</div><span>{snapshot.warnings.length + missing.length}</span></div>{snapshot.warnings.length === 0 && missing.length === 0 ? <p className="empty-state">本次任务没有记录 Provider 警告或已选能力缺口；这不等于来源正确、完整或适合投资决策。</p> : <ul>{snapshot.warnings.map((warning, index) => <li key={`warning-${index}`}>{warning}</li>)}{missing.map((plan) => <li key={`missing-${plan.capability}`}>{plan.capability}：已选择 {plan.selected ?? "Provider"}，但本次没有保存来源快照。</li>)}</ul>}</article>
-        <article className="panel result-boundary"><div className="panel-head"><div>本次可确认 / 不可确认</div><span>研究边界</span></div><dl><div><dt>可确认</dt><dd>该任务实际调用并保存的来源、抓取时间、as_of、缓存状态与异常。</dd></div><div><dt>不可确认</dt><dd>本次没有自动生成论点、估值、财务数字 tie-out 或投资行动条件。</dd></div><div><dt>下一步</dt><dd>人工核验关键披露后，再创建可引用的研究草稿与论点版本。</dd></div></dl></article>
+        <article className="panel result-boundary"><div className="panel-head"><div>本次可确认 / 不可确认</div><span>研究边界</span></div><dl><div><dt>可确认</dt><dd>该任务实际调用并保存的来源、抓取时间、as_of、缓存状态与异常；证据草稿中的 SEC 数字与其证据记录、单位、期间和披露编号的自动 tie-out。</dd></div><div><dt>不可确认</dt><dd>本次没有自动生成论点、估值或投资行动条件；自动校验不能证明来源本身正确。</dd></div><div><dt>下一步</dt><dd>生成证据草稿，处理校验问题，再由 Owner 人工审阅与批准。</dd></div></dl></article>
       </section>
+
+      <ResearchDraftPanel jobId={job.id} jobSucceeded={isComplete} />
     </>}
   </>;
 }

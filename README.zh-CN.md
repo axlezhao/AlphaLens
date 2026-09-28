@@ -11,7 +11,9 @@ AlphaLens 是由 [axlezhao](https://github.com/axlezhao) 维护的个人开源�
 **`0.5.0-beta`：实验性 Beta，不是生产就绪系统。** 已有界面、领域模型、数据适配器和确定性计算，但不能把“有实现”写成“完整验证”。
 
 - 首页研究台、论点卡包含示例数据，并已明确标注；研究任务完成后会进入独立结果页，展示该任务实际保存的来源、URL、`as_of`、抓取时间、新鲜度、缺口和警告，但不会替换示例论点卡或自动生成论点。
-- 异步研究任务目前收集数据源快照，不调用外部 LLM，也不会自动生成有证据支撑的投资论点。
+- 异步研究任务收集数据源快照，并把 SEC XBRL `companyfacts` 规范化为带引用（披露、accession、concept、单位、期间）的时点事实；`as_of` 当日及之后提交的数据被排除。
+- 完成的任务可生成**确定性证据草稿**：每个数字链接到证据记录，缺口列为待核实项，论点、情景和证伪条件留空由人工撰写。自动校验记录问题；存在未关闭的阻断问题时不能批准或发布，且只有 Owner 可以批准。这是第一阶段证据闭环，已在合成 fixture 上验证。
+- 系统不调用外部 LLM，也不会自动生成投资论点。校验通过只代表数字与已保存证据一致，不代表来源或结论正确。
 - 多 Agent 仲裁和质量评分是启发式实验，不代表经校准的投资置信度。
 - 新克隆可运行仅限 loopback 的 fixture D1 工作流与 `.invalid` 开发身份；D1 迁移已对核心研究/组合的跨 Workspace 引用做完整性拦截并可在本地验证。请求级 Workspace RBAC（`requireWorkspaceAccess` / `requirePortfolioAccess`）统一了所有路由的 401/403/404，双租户 HTTP 测试覆盖完整权限矩阵，成员管理 API 与安全的控制性 Owner 转移端点（目标必须是已有成员）补全了多租户模型。研究任务经可恢复状态机执行（原子 lease 领取 + 每次领取唯一 lease token、有限重试与退避、lease 回收、取消优先），Webhook 经 at-least-once Outbox 投递（lease token + compare-and-set 状态转换、原始响应体不落库）。通知 Outbox 目前仅入队/投递、尚未达到与 Webhook 同级的 lease/CAS 保护，因此不宣称「已可靠投递通知」。这仍不等于生产级认证（OAuth/SSO）。
 
@@ -24,7 +26,8 @@ AlphaLens 是由 [axlezhao](https://github.com/axlezhao) 维护的个人开源�
 | 模块 | 已有实现 | 仍需解决 |
 | --- | --- | --- |
 | 数据与证据 | SEC、获准公司 IR、Alpha Vantage 适配器，缓存/重试/陈旧性标记 | 数据许可与实际凭据、全局 SEC 限速、历史时间点来源 |
-| 研究任务 | D1 队列、幂等、事件、证据版本、研究快照和真实来源结果页 | 自动论点生成、恢复与租户端到端验证 |
+| 研究任务 | D1 队列、幂等、事件、证据版本、研究快照、真实来源结果页；SEC 事实规范化与引用 | 自动论点生成；时点过滤目前只覆盖 SEC 事实 |
+| 证据草稿 | 每个任务一个确定性草稿、校验问题（tie-out、单位、截止时间、引用、交叉核对）、警告确认、Owner 审批与发布门禁、审阅界面 | 论点与证伪条件尚未在草稿内撰写；校验只证明与证据一致，不证明来源准确 |
 | 个人工作台 | 观察池、论点时间线、证伪条件、财报任务、导出与提醒适配器 | 外部通道验证、完整用户旅程 |
 | 组合分析 | 暴露、集中度、导入收益率相关性、情景压力与行动条件 | 输入质量、模型边界与回归样本扩充 |
 | 平台实验 | Workflow、KPI/Skill Registry、团队发布、API Key/Webhook | 审批恢复、真实模型分工、权限隔离、跨供应商故障切换与安全加固 |
@@ -57,7 +60,7 @@ pnpm db:local:migrate
 pnpm local:verify:e2e
 ```
 
-它会临时启动仅 loopback 服务，验证创建、执行、查询和取消的合成研究任务，随后自动停止。
+它会临时启动仅 loopback 服务，验证创建、执行、查询和取消的合成研究任务，生成并校验证据草稿，走完 Owner 审阅直至发布，随后自动停止。
 
 ```bash
 pnpm run lint
@@ -66,7 +69,7 @@ pnpm test
 pnpm db:local:verify-integrity
 ```
 
-其中 `db:local:verify-integrity` 在隔离 D1 中验证 owner 成员关系、角色合法性，以及核心研究/组合跨 Workspace 写入被数据库拒绝。上述检查仍不证明实时 Provider 可用、完整请求级租户安全、投资准确率或收益表现。
+其中 `db:local:verify-integrity` 在隔离 D1 中验证 owner 成员关系、角色合法性，以及核心研究/组合、证据草稿与校验问题的跨 Workspace 写入被数据库拒绝。上述检查仍不证明实时 Provider 可用、完整请求级租户安全、投资准确率或收益表现。
 
 ## 技术与方向
 
@@ -75,8 +78,8 @@ pnpm db:local:verify-integrity
 下一阶段优先级：
 
 1. 加固出站请求、删除流程及 Workflow 生命周期。A3.2 已交付请求级 RBAC（`requireWorkspaceAccess` / `requirePortfolioAccess` / `listAccessibleWorkspaces`）、全部路由的双租户 HTTP 测试、成员管理 API，以及原子化的控制性 Owner 转移（目标须为已有成员）。A3.3 已交付可恢复的研究任务状态机（原子 lease 领取 + lease token、有限重试、lease 回收、取消确定进入 `cancelled` 终态、状态与事件/Outbox 在同一事务提交，lease 过期恢复、attempts 耗尽、timeout 与 cancelled recovery 均在同一原子边界写对应 event）、at-least-once 的 Webhook Outbox（防 SSRF URL 校验、lease token + compare-and-set、状态与事件与投递同事务、原始响应体不落库），以及区分个人/共享 Workspace 的安全账户删除后台工作流（副作用原子 fencing）。通知 Outbox 尚未达到 Webhook 级的 lease/CAS 投递保护，不作为「可靠投递通知」承诺。仍未完成：托管队列、生产 OAuth/SSO、监控告警、合规审批的数据保留策略、通知的 Webhook 级可靠投递。
-2. 将结果页扩展为可引用的研究草稿与人工 Review 流程。
-3. 再接模型、构建真实评估集，验证自动研究的质量。
+2. ~~将结果页扩展为可引用的研究草稿与人工 Review 流程。~~ SEC 事实部分已完成：确定性证据草稿、校验问题与 Owner 审批发布门禁（第一阶段）。下一步：让人工在草稿中撰写论点、证伪条件与情景，作为重新校验的新版本并提供可读 diff。
+3. 再接模型、构建真实评估集，验证自动研究的质量。草稿 schema 与校验规则就是模型输出必须通过的契约。
 
 [Issue](https://github.com/axlezhao/AlphaLens/issues) · [路线图](docs/CAPABILITIES_AND_ROADMAP.md) · [版本记录](CHANGELOG.md) · [贡献指南](CONTRIBUTING.md) · [安全政策](SECURITY.md)
 

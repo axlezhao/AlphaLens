@@ -16,7 +16,9 @@ Originally built as a competition prototype, AlphaLens is now maintained by [axl
 **Experimental beta — `0.5.0-beta`, not production-ready.** The repository contains a working interface, domain services, provider adapters, and deterministic calculations. Breadth of implementation is not the same as end-to-end validation.
 
 - The landing research desk and thesis cards contain illustrative data, now visibly labelled as samples. A completed research job opens a separate result view with that job's actual provider snapshot, source URL, `as_of`, fetched time, freshness, missing capabilities and warnings; it does not replace the sample thesis cards or generate a thesis.
-- Research jobs collect provider snapshots. They do **not** currently call an external LLM or automatically produce a source-grounded investment thesis.
+- Research jobs collect provider snapshots and normalize SEC XBRL `companyfacts` into point-in-time facts, each cited to its filing, accession, concept, unit and period. Values filed on or after `as_of` are excluded.
+- A completed job can become a **deterministic evidence draft**: every number links to an evidence row, gaps are listed as unknowns, and thesis, scenarios and falsifiers are left empty for a person to write. Automated checks record verification issues; a draft with an open blocking issue cannot be approved or published, and only an owner can approve. This is the Phase 1 evidence loop, validated on synthetic fixtures.
+- Nothing calls an external LLM. AlphaLens does **not** automatically produce an investment thesis, and a clean verification means the numbers tie out to their stored evidence, not that the sources or conclusions are right.
 - Multi-agent arbitration and quality scores are heuristic scaffolding, not calibrated investment confidence or a validated autonomous analyst system.
 - A fresh clone can run a loopback-only, fixture-backed D1 workflow with a synthetic `.invalid` development identity. Core research/portfolio cross-workspace references are guarded in D1 migrations; request-level Workspace RBAC (`requireWorkspaceAccess` / `requirePortfolioAccess`) unifies 401/403/404 across all routes, dual-tenant HTTP tests cover the full matrix, and a member-administration API plus a safe controlling-owner transfer endpoint round out the model. Research jobs run through a recoverable state machine (atomic lease claim, bounded retry with backoff, lease recovery) and deliveries flow through an at-least-once outbox. This is not yet a production authentication setup.
 
@@ -29,7 +31,8 @@ Originally built as a competition prototype, AlphaLens is now maintained by [axl
 | Area | Implemented foundation | Important boundary |
 | --- | --- | --- |
 | Data and evidence | SEC EDGAR, approved issuer IR feeds, Alpha Vantage adapters; caching, retries, freshness metadata | Credentials, provider permissions, and data availability are deployment-dependent; per-instance SEC throttling is not a global rate limit |
-| Research jobs | D1-backed queue, idempotency, events, versioned evidence and snapshots; actual result/provenance view | Snapshot collection, not automated thesis generation; historical `as_of` does not guarantee point-in-time source retrieval |
+| Research jobs | D1-backed queue, idempotency, events, versioned evidence and snapshots; actual result/provenance view; SEC companyfacts normalized into cited point-in-time facts | Snapshot collection, not automated thesis generation; filing-date filtering covers SEC facts only, other providers return current data |
+| Evidence drafts | Deterministic draft per job, verification issues (tie-out, units, cutoff, citations, cross-checks), warning acknowledgement, owner approval and publish gate, review UI | Thesis and falsifiers are written by people outside the draft today; checks prove consistency with stored evidence, not source accuracy |
 | Personal workbench | Watchlists, thesis versions, falsifiers, earnings job types, export and notification adapters | Backend/auth configuration required; delivery and external integrations need live validation |
 | Portfolio tools | Exposure, concentration, imported-return correlation, scenario stress and action conditions | Results depend on user inputs and simplified models; no brokerage or execution integration |
 | Platform experiments | Workflow definitions, KPI/skill registries, review/publish APIs, scoped API keys and webhook outbox | Workflow lifecycle, skill isolation, failover, security and end-to-end coverage need hardening |
@@ -62,7 +65,7 @@ pnpm db:local:migrate
 pnpm local:verify:e2e
 ```
 
-This command starts a loopback-only server temporarily, creates/executes/queries/cancels fixture research jobs, then stops it. It does not call external Providers or require any market-data, model or production credentials.
+This command starts a loopback-only server temporarily, creates/executes/queries/cancels fixture research jobs, builds and verifies an evidence draft, takes it through owner review to publication, then stops it. It does not call external Providers or require any market-data, model or production credentials.
 
 ## Verify a change
 
@@ -73,7 +76,7 @@ pnpm test
 pnpm db:local:verify-integrity
 ```
 
-The isolated D1 check verifies owner membership, valid roles, and database-level rejection of selected cross-workspace research and portfolio writes. The checks do not establish real-provider availability, full request-level authorization coverage, research accuracy, or investment performance. CI runs them without live provider keys.
+The isolated D1 check verifies owner membership, valid roles, and database-level rejection of selected cross-workspace research, portfolio, evidence-draft and verification-issue writes. The checks do not establish real-provider availability, full request-level authorization coverage, research accuracy, or investment performance. CI runs them without live provider keys.
 
 ## Architecture
 
@@ -82,10 +85,12 @@ The current data path is:
 ```text
 Web UI → authenticated API → D1 research queue → provider adapters
                                               → source/evidence snapshots
+                                              → SEC fact normalization (cited, point-in-time)
                                               → job status / event API
+Result view → evidence draft → verification issues → owner review → publish
 ```
 
-The intended research loop is evidence → thesis → challenge → valuation → falsifier → review. Connecting the snapshot result to that complete loop is the next priority, not a completed feature.
+The intended research loop is evidence → thesis → challenge → valuation → falsifier → review. The evidence → reviewable draft → review part now exists without a model; thesis, challenge, valuation and falsifier authoring are not yet part of the draft.
 
 The application uses **TypeScript**, React/Next.js through Vinext/Vite, and Cloudflare Workers/D1. TypeScript/JavaScript is not Java. Python analytics can be introduced behind a clear interface if needed; a backend rewrite is not a prerequisite for making the current workflow reliable.
 
@@ -93,7 +98,8 @@ The application uses **TypeScript**, React/Next.js through Vinext/Vite, and Clou
 app/                 Web interface and API routes
 db/ + drizzle/       Schema and versioned D1 migrations
 lib/providers/       SEC, issuer IR, licensed market/consensus adapters
-lib/research/        Job queue, snapshot runner, evidence persistence
+lib/research/        Job queue, snapshot runner, evidence persistence,
+                     SEC normalization, evidence drafts and verification
 lib/workbench/       Personal research, exports, notifications
 lib/portfolio/       Deterministic exposure and risk calculations
 lib/platform/        Experimental workflows, routing, review and webhooks
@@ -105,8 +111,8 @@ workbuddy-skill/     Optional workflow instruction bundle
 ## Next milestone
 
 1. Harden workflow recovery, outbound requests and deletion. A3.2 delivered request-level RBAC (`requireWorkspaceAccess` / `requirePortfolioAccess` / `listAccessibleWorkspaces`), dual-tenant HTTP tests, member management APIs, and atomic controlling-owner transfer. A3.3 delivered the recoverable research-job state machine (atomic lease claim with a per-claim lease token, bounded retry, lease recovery, deterministic cancellation to a terminal `cancelled` state, and every recovery transition — lease expiry, attempts exhausted, timeout, cancelled — written in the same transaction as its event), the at-least-once webhook outbox (SSRF-safe URL validation, lease-token + compare-and-set transitions, state + event + delivery written in one transaction, raw response bodies never persisted), and a safe background account-deletion workflow that distinguishes personal from shared workspaces with atomically-fenced side effects. The notification outbox still only enqueues/delivers without webhook-grade lease/CAS protection, so it is not described as reliably delivered. Still open: a managed queue host, production OAuth/SSO, monitoring/alerting, compliance-approved data-retention review, and webhook-grade notification delivery.
-2. Extend the result view into a reviewable evidence artifact with citation spans and explicit human review.
-3. Introduce a model adapter and measured research evaluation only after the evidence path is trustworthy.
+2. ~~Extend the result view into a reviewable evidence artifact with citation spans and explicit human review.~~ Done for SEC facts: deterministic evidence drafts, verification issues and an owner-approved publish gate (Phase 1). Next: let a person write the thesis, falsifiers and scenarios as a new, re-verified draft version with a readable diff.
+3. Introduce a model adapter and measured research evaluation only after the evidence path is trustworthy. The draft schema and verification checks are the contract a model's output will have to pass.
 
 [Public issue tracker](https://github.com/axlezhao/AlphaLens/issues) · [Detailed roadmap](docs/CAPABILITIES_AND_ROADMAP.md) · [Changelog](CHANGELOG.md)
 

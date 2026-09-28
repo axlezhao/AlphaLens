@@ -1,4 +1,5 @@
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
 
 const timestamps = {
   createdAt: text("created_at").notNull(),
@@ -588,12 +589,21 @@ export const arbitrationDecisions = sqliteTable("arbitration_decisions", {
 }, (t) => [index("arbitration_decisions_run_idx").on(t.workflowRunId, t.createdAt)]);
 
 export const researchArtifacts = sqliteTable("research_artifacts", {
-  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), workflowRunId: text("workflow_run_id").references(() => workflowRuns.id), securityId: text("security_id").references(() => securities.id), logicalId: text("logical_id").notNull(), artifactType: text("artifact_type", { enum: ["report", "memo", "model", "dataset", "decision_card"] }).notNull(), title: text("title").notNull(), ownerUserId: text("owner_user_id").notNull().references(() => users.id), ...timestamps,
-}, (t) => [uniqueIndex("research_artifacts_workspace_logical_uq").on(t.workspaceId, t.logicalId), index("research_artifacts_run_idx").on(t.workflowRunId)]);
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), workflowRunId: text("workflow_run_id").references(() => workflowRuns.id), securityId: text("security_id").references(() => securities.id), logicalId: text("logical_id").notNull(), artifactType: text("artifact_type", { enum: ["report", "memo", "model", "dataset", "decision_card"] }).notNull(), title: text("title").notNull(), ownerUserId: text("owner_user_id").notNull().references(() => users.id), researchJobId: text("research_job_id").references(() => researchJobs.id), ...timestamps,
+}, (t) => [uniqueIndex("research_artifacts_workspace_logical_uq").on(t.workspaceId, t.logicalId), index("research_artifacts_run_idx").on(t.workflowRunId), uniqueIndex("research_artifacts_research_job_uq").on(t.researchJobId).where(sql`${t.researchJobId} IS NOT NULL`)]);
 
 export const researchArtifactVersions = sqliteTable("research_artifact_versions", {
-  id: text("id").primaryKey(), artifactId: text("artifact_id").notNull().references(() => researchArtifacts.id, { onDelete: "cascade" }), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), version: integer("version").notNull(), contentJson: text("content_json").notNull(), sourceSnapshotJson: text("source_snapshot_json").notNull().default("{}"), checksum: text("checksum").notNull(), status: text("status", { enum: ["draft", "in_review", "approved", "rejected", "published", "superseded"] }).notNull(), asOf: text("as_of").notNull(), createdByUserId: text("created_by_user_id").notNull().references(() => users.id), supersedesId: text("supersedes_id"), publishedAt: text("published_at"), ...timestamps,
+  id: text("id").primaryKey(), artifactId: text("artifact_id").notNull().references(() => researchArtifacts.id, { onDelete: "cascade" }), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), version: integer("version").notNull(), contentJson: text("content_json").notNull(), sourceSnapshotJson: text("source_snapshot_json").notNull().default("{}"), checksum: text("checksum").notNull(), status: text("status", { enum: ["draft", "in_review", "approved", "rejected", "published", "superseded"] }).notNull(), asOf: text("as_of").notNull(), createdByUserId: text("created_by_user_id").notNull().references(() => users.id), supersedesId: text("supersedes_id"), publishedAt: text("published_at"), verifiedAt: text("verified_at"), verifierVersion: text("verifier_version"), ...timestamps,
 }, (t) => [uniqueIndex("research_artifact_versions_uq").on(t.artifactId, t.version), index("research_artifact_versions_status_idx").on(t.workspaceId, t.status, t.updatedAt)]);
+
+/**
+ * Problems found by automated checks on an artifact version. `fingerprint` makes
+ * re-verification idempotent. Blocking issues can only be closed by a passing
+ * re-check; warnings may be acknowledged by an editor with a note.
+ */
+export const verificationIssues = sqliteTable("verification_issues", {
+  id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), artifactVersionId: text("artifact_version_id").notNull().references(() => researchArtifactVersions.id, { onDelete: "cascade" }), fingerprint: text("fingerprint").notNull(), checkCode: text("check_code").notNull(), severity: text("severity", { enum: ["blocking", "warning", "info"] }).notNull(), status: text("status", { enum: ["open", "acknowledged", "resolved"] }).notNull(), subjectJson: text("subject_json").notNull().default("{}"), message: text("message").notNull(), verifierVersion: text("verifier_version").notNull(), resolutionNote: text("resolution_note"), resolvedByUserId: text("resolved_by_user_id").references(() => users.id), resolvedAt: text("resolved_at"), ...timestamps,
+}, (t) => [uniqueIndex("verification_issues_version_fingerprint_uq").on(t.artifactVersionId, t.fingerprint), index("verification_issues_open_idx").on(t.workspaceId, t.artifactVersionId, t.status)]);
 
 export const teamComments = sqliteTable("team_comments", {
   id: text("id").primaryKey(), workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }), artifactVersionId: text("artifact_version_id").notNull().references(() => researchArtifactVersions.id, { onDelete: "cascade" }), authorUserId: text("author_user_id").notNull().references(() => users.id), parentId: text("parent_id"), anchorJson: text("anchor_json").notNull().default("{}"), body: text("body").notNull(), status: text("status", { enum: ["open", "resolved"] }).notNull().default("open"), resolvedByUserId: text("resolved_by_user_id").references(() => users.id), resolvedAt: text("resolved_at"), ...timestamps,

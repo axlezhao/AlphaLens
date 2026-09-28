@@ -57,9 +57,9 @@ pnpm test
 
 The GitHub Actions workflow installs the frozen lockfile, runs lint/type checks, then runs `pnpm test`. It uses no provider credentials or production database, and does not deploy. Add fixtures with redistribution rights rather than introducing network dependencies into unit tests.
 
-`pnpm local:verify:e2e` is an explicit local acceptance command because it launches a loopback Worker and D1 emulator. It has been manually validated against all five checked-in migrations; it never performs a remote database operation.
+`pnpm local:verify:e2e` launches a loopback Worker and D1 emulator and runs the fixture workflow: create, execute, query and cancel jobs, then build, verify, review and publish an evidence draft (the Phase 1 gate). CI runs it after migrating a fresh local D1; it never performs a remote database operation. `tests/phase1-gate.test.ts` runs the same gate in-process as part of `pnpm test`.
 
-`pnpm db:local:verify-integrity` applies every migration to a fresh temporary local D1 state, then verifies that invalid member roles, cross-workspace research/portfolio records and ownership transfer to a non-member are rejected at the database boundary. It creates no remote database and requires no `.dev.vars` or Provider credentials. It validates selected core relations, not every API authorization path; A3.2 request-level RBAC, member administration, ownership transfer and dual-tenant HTTP tests live in the unit suite (`tests/workspace-access.test.ts`, `tests/tenant-isolation.test.ts`, `tests/ownership-transfer.test.ts`), and A3.3 reliability tests live in `tests/research-job-reliability.test.ts`, `tests/outbox-reliability.test.ts` and `tests/account-deletion.test.ts`.
+`pnpm db:local:verify-integrity` applies every migration to a fresh temporary local D1 state, then verifies that invalid member roles, cross-workspace research/portfolio records, draft artifacts linked to another workspace's research job, verification issues written against another workspace's artifact version, and ownership transfer to a non-member are rejected at the database boundary. It creates no remote database and requires no `.dev.vars` or Provider credentials. It validates selected core relations, not every API authorization path; A3.2 request-level RBAC, member administration, ownership transfer and dual-tenant HTTP tests live in the unit suite (`tests/workspace-access.test.ts`, `tests/tenant-isolation.test.ts`, `tests/ownership-transfer.test.ts`), A3.3 reliability tests live in `tests/research-job-reliability.test.ts`, `tests/outbox-reliability.test.ts` and `tests/account-deletion.test.ts`, and Phase 1 evidence-loop tests live in `tests/sec-normalize.test.ts`, `tests/research-draft.test.ts`, `tests/research-verify.test.ts`, `tests/research-review.test.ts` and `tests/phase1-gate.test.ts`.
 
 ## Schema changes
 
@@ -70,7 +70,8 @@ Edit `db/schema.ts`, generate a new migration with `pnpm db:generate`, and revie
 - TypeScript/JavaScript is not Java; changing languages will not fix missing data provenance or workflow state transitions.
 - A successful build or a green CI badge does not validate data licensing, authentication trust, current provider availability or research conclusions.
 - `as_of` is recorded metadata, not an automatic historical-data query constraint across all providers.
-- The current research runner returns source snapshots, not LLM-written investment reports. The homepage thesis example is not its output.
+- The current research runner returns source snapshots and cited SEC facts, not LLM-written investment reports. Evidence drafts are assembled by deterministic rules and leave the thesis empty. The homepage thesis example is not their output.
+- A draft with no open blocking issue has numbers that tie out to their stored evidence. That is not the same as the sources being correct or the draft being a recommendation.
 - `pnpm start` uses the project's Vinext runtime; ordinary Node hosting is not a drop-in replacement for D1, Worker bindings or authentication.
 
 For proposed changes, follow [CONTRIBUTING.md](../CONTRIBUTING.md). Keep current behavior and target architecture clearly separated in documentation.

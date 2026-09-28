@@ -144,6 +144,11 @@ POST   /api/v1/research
 GET    /api/v1/research/:jobId
 DELETE /api/v1/research/:jobId
 GET    /api/v1/research/:jobId/events
+GET    /api/v1/research/:jobId/draft
+POST   /api/v1/research/:jobId/draft
+POST   /api/v1/research/:jobId/draft/verify
+PATCH  /api/v1/research/:jobId/draft/issues/:issueId
+POST   /api/v1/research/:jobId/draft/review
 GET    /api/v1/providers/health
 POST   /api/v1/account/delete
 GET    /api/health

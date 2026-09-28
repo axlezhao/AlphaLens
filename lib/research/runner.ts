@@ -4,8 +4,10 @@ import { issuerIrEvents } from "../providers/issuer-ir";
 import { secCompany } from "../providers/sec-edgar";
 import type { ProviderEnvelope } from "../providers/types";
 import { resolveProviderPlan } from "../platform/provider-routing";
+import type { EvidenceRef } from "./snapshot";
 import { saveSource, saveVersionedEvidence } from "./evidence-repository";
-import { fixtureProviderSnapshots } from "./fixture-provider";
+import { FIXTURE_SEC_ARCHIVE_ORIGIN, fixtureCompanyFacts, fixtureProviderSnapshots } from "./fixture-provider";
+import { normalizeCompanyFacts, secFactClaim, secFactNaturalKey } from "./normalize";
 import { isLocalFixtureMode } from "../runtime/local-fixture";
 import { backoffDelayMs, classifyJobError, summarizeError } from "./job-state";
 import { buildResearchOutboxDeliveries } from "../outbox/events";
@@ -153,8 +155,11 @@ async function collectAndPersist(job: ClaimedJob) {
   ]);
   const selected = new Set(plan.map((item) => item.selected?.provider).filter(Boolean));
   const calls: Array<Promise<ProviderEnvelope<unknown>>> = [];
+  // companyfacts is fetched alongside filings but kept out of the snapshot: it is
+  // large, and only its normalized, cited facts are needed downstream.
+  const sec: { companyFacts?: ProviderEnvelope<unknown> } = fixtureMode ? { companyFacts: fixtureCompanyFacts(job.ticker, job.asOf) } : {};
   if (!fixtureMode) {
-    if (selected.has("sec-edgar")) calls.push(secCompany(job.ticker).then((value) => value.filings as ProviderEnvelope<unknown>));
+    if (selected.has("sec-edgar")) calls.push(secCompany(job.ticker).then((value) => { sec.companyFacts = value.facts as ProviderEnvelope<unknown>; return value.filings as ProviderEnvelope<unknown>; }));
     if (selected.has("alpha-vantage-market")) calls.push(marketQuote(job.ticker));
     if (selected.has("alpha-vantage-consensus")) calls.push(consensusEstimates(job.ticker));
     if (selected.has("issuer-ir") && job.irBaseUrl && job.irFeedUrl) calls.push(issuerIrEvents(job.irFeedUrl, job.irBaseUrl));
@@ -169,13 +174,15 @@ async function collectAndPersist(job: ClaimedJob) {
   const secEnvelope = fulfilled.find((item) => item.provider === "sec-edgar");
   if (!secEnvelope) throw new Error(`Required SEC source failed: ${failures.join("; ")}`);
 
+  const evidenceRefs: EvidenceRef[] = [];
   for (const envelope of fulfilled) {
     const sourceType = envelope.provider === "sec-edgar" ? "sec" : envelope.provider === "issuer-ir" ? "ir" : envelope.provider.includes("consensus") ? "consensus" : "market";
     const sourceId = await saveSource(job.workspaceId, envelope, `${job.ticker} ${envelope.provider} snapshot`, envelope.provider === "sec-edgar" ? "U.S. SEC" : envelope.provider === "issuer-ir" ? `${job.ticker} Investor Relations` : "Alpha Vantage", sourceType);
-    if (envelope.provider === "alpha-vantage-market") await saveVersionedEvidence({ workspaceId: job.workspaceId, securityId: job.securityId, sourceId, naturalKey: "market-quote", kind: "FACT", claim: `${job.ticker} market quote snapshot`, value: envelope.data, observedAt: envelope.fetchedAt, asOf: job.asOf, confidence: envelope.freshness === "fresh" ? 0.9 : 0.65 });
-    if (envelope.provider === "alpha-vantage-consensus") await saveVersionedEvidence({ workspaceId: job.workspaceId, securityId: job.securityId, sourceId, naturalKey: "consensus-estimates", kind: "EXPECTATION", claim: `${job.ticker} analyst EPS and revenue consensus snapshot`, value: envelope.data, observedAt: envelope.fetchedAt, asOf: job.asOf, confidence: envelope.freshness === "fresh" ? 0.85 : 0.6 });
+    if (envelope.provider === "alpha-vantage-market") evidenceRefs.push({ evidenceId: await saveVersionedEvidence({ workspaceId: job.workspaceId, securityId: job.securityId, sourceId, naturalKey: "market-quote", kind: "FACT", claim: `${job.ticker} market quote snapshot`, value: envelope.data, observedAt: envelope.fetchedAt, asOf: job.asOf, confidence: envelope.freshness === "fresh" ? 0.9 : 0.65 }), naturalKey: "market-quote", kind: "FACT", provider: envelope.provider, sourceUrl: envelope.sourceUrl });
+    if (envelope.provider === "alpha-vantage-consensus") evidenceRefs.push({ evidenceId: await saveVersionedEvidence({ workspaceId: job.workspaceId, securityId: job.securityId, sourceId, naturalKey: "consensus-estimates", kind: "EXPECTATION", claim: `${job.ticker} analyst EPS and revenue consensus snapshot`, value: envelope.data, observedAt: envelope.fetchedAt, asOf: job.asOf, confidence: envelope.freshness === "fresh" ? 0.85 : 0.6 }), naturalKey: "consensus-estimates", kind: "EXPECTATION", provider: envelope.provider, sourceUrl: envelope.sourceUrl });
   }
-  const snapshot = { schemaVersion: 1, sourceMode: fixtureMode ? "fixture" : "live", ticker: job.ticker, question: job.question, asOf: job.asOf, generatedAt: new Date().toISOString(), providerPlan: plan.map((item) => ({ capability: item.request.capability, selected: item.selected?.provider ?? null, fallbacks: item.fallbacks.map((route) => route.provider), rejected: item.rejected, explanation: item.explanation })), sources: fulfilled.map(compactEnvelope), warnings: failures };
+  const secFacts = sec.companyFacts ? await persistSecFacts(job, sec.companyFacts, fixtureMode, evidenceRefs) : null;
+  const snapshot = { schemaVersion: 1, sourceMode: fixtureMode ? "fixture" : "live", ticker: job.ticker, question: job.question, asOf: job.asOf, generatedAt: new Date().toISOString(), providerPlan: plan.map((item) => ({ capability: item.request.capability, selected: item.selected?.provider ?? null, fallbacks: item.fallbacks.map((route) => route.provider), rejected: item.rejected, explanation: item.explanation })), sources: fulfilled.map(compactEnvelope), warnings: failures, secFacts, evidenceRefs };
 
   // The final succeeded transition, its event, and its outbox deliveries are
   // atomic. A cancel that lands after the providers return but before the
@@ -185,6 +192,22 @@ async function collectAndPersist(job: ClaimedJob) {
   if (outcome === "succeeded") return;
   if (outcome === "cancelled") throw new CancelledDuringExecution();
   throw new LeaseLost();
+}
+
+/**
+ * Saves the companyfacts document as a source and each normalized, cited SEC
+ * fact as versioned FACT evidence, recording each evidence id in `evidenceRefs`. Idempotent: evidence is deduplicated by
+ * content hash, so a retried job does not create new versions.
+ */
+async function persistSecFacts(job: ClaimedJob, envelope: ProviderEnvelope<unknown>, fixtureMode: boolean, evidenceRefs: EvidenceRef[]) {
+  const normalized = normalizeCompanyFacts(envelope.data, { asOf: job.asOf, sourceUrl: envelope.sourceUrl, archiveOrigin: fixtureMode ? FIXTURE_SEC_ARCHIVE_ORIGIN : undefined });
+  const sourceId = await saveSource(job.workspaceId, envelope, `${job.ticker} SEC XBRL company facts`, "U.S. SEC", "sec");
+  for (const fact of normalized.facts) {
+    const naturalKey = secFactNaturalKey(fact);
+    const evidenceId = await saveVersionedEvidence({ workspaceId: job.workspaceId, securityId: job.securityId, sourceId, naturalKey, kind: "FACT", claim: secFactClaim(job.ticker, fact), value: fact, observedAt: envelope.fetchedAt, asOf: job.asOf, confidence: envelope.freshness === "fresh" ? 0.95 : 0.8 });
+    evidenceRefs.push({ evidenceId, naturalKey, kind: "FACT", provider: "sec-edgar", sourceUrl: envelope.sourceUrl });
+  }
+  return normalized;
 }
 
 /**

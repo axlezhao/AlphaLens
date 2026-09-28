@@ -14,7 +14,8 @@
 | 数据接入 | SEC、获准 IR Feed、Alpha Vantage 行情/预期、缓存/重试/熔断 | `lib/providers/` | 合法凭据与 Feed 配置必需；契约测试非实时连通测试 |
 | 持久化 | 59 张领域表、版本、幂等键、`as_of`、审计与本地 D1 迁移；核心 Workspace 引用约束 | `db/`, `drizzle/`, `wrangler.local.jsonc` | A3.1 D1 完整性脚本已验收；A3.2 双租户请求级隔离测试已覆盖全部 18 条路由 |
 | 身份与权限 | 可信平台身份头、Workspace RBAC（`requireWorkspaceAccess` / `requirePortfolioAccess` / `listAccessibleWorkspaces` / `auditDenied`）、成员管理 API、原子化控制性 Owner 转移（目标须为已有成员）、API Key scope；loopback fixture `.invalid` 身份 | `lib/auth/`, `app/api/v1/workspaces/`, `lib/runtime/`, `lib/platform/` | workspace 成员角色与 controlling owner 有 D1 约束；跨 Workspace 资源返回与缺失相同的 404；生产仍依赖可信入口，不能把用户自报身份头当作安全登录 |
-| 异步研究 | 任务租约、事件、取消、重试/恢复代码、Provider 快照与本地 fixture runner | `lib/research/`, `scripts/local/` | fixture 链路已验收；不调用 LLM，不自动产出新论点；恢复竞态需专项测试 |
+| 异步研究 | 任务租约、事件、取消、重试/恢复代码、Provider 快照与本地 fixture runner；SEC companyfacts 规范化为带引用的时点事实（`lib/research/normalize.ts`） | `lib/research/`, `scripts/local/` | fixture 链路已验收；不调用 LLM，不自动产出新论点；时点过滤只覆盖 SEC 事实，真实 SEC 数据需实际环境验收 |
+| 证据草稿与校验 | 确定性证据草稿（`lib/research/draft.ts`）、自动校验与问题记录（`lib/research/verify.ts`, `verification_issues`）、警告确认、Owner 审批与发布门禁、结果页审阅面板 | `lib/research/`, `app/research-draft.tsx`, `app/api/v1/research/[jobId]/draft/` | `tests/phase1-gate.test.ts` 与 `pnpm local:verify:e2e` 覆盖 job → 草稿 → 校验 → 审阅 → 发布；论点/证伪条件尚不能在草稿内撰写；校验不证明来源正确 |
 | 个人研究 | 自定义观察池、版本、证伪条件、财报任务、复盘、同行与反向估值 | `lib/workbench/` | 需后台配置；Preview/Deep Dive 是任务类型，不是完整财报分析模型 |
 | 导出和提醒 | Markdown/PDF/XLSX、邮件/企业微信/公众号适配器 | `lib/workbench/` | 外部投递需凭据与实际验证，不支持任意个人微信直发 |
 | 组合 | 暴露、集中度、Pearson 相关性、压力测试、风险行动条件 | `lib/portfolio/` | 用户输入与导入收益率；无券商自动同步，不产生订单 |
@@ -24,7 +25,8 @@
 
 ## 2. 现在不能宣称的能力
 
-- **自动 AI 投研**：runner 当前保存来源快照，模型/Prompt 版本字段不是实际模型调用记录。
+- **自动 AI 投研**：runner 当前保存来源快照与规范化的 SEC 事实，证据草稿由确定性规则生成；模型/Prompt 版本字段不是实际模型调用记录。
+- **校验等于正确**：证据草稿的自动校验证明数字、单位、期间和引用与已保存证据一致，并检查 `as_of` 截止与交叉核对；它不证明 SEC 或其他来源本身准确，也不评价投资结论。
 - **真实独立多 Agent 分析**：角色指令与启发式仲裁存在，但没有独立 LLM 分析和可校准的质量验证。
 - **已完成 DAG 生命周期**：审批后恢复、发布节点执行、并发上限与部分失败路径需要完善测试和实现。
 - **动态多供应商故障切换**：路由能给出选择与候选 fallback，runner 不会自动遍历其他供应商重试。
@@ -44,6 +46,7 @@
 | A1 | 真实研究结果 UI | **核心实现已完成**：完成任务后读取实际 snapshot，展示 source URL、`fetchedAt`/`as_of`、缓存、新鲜/陈旧、缺失与警告；示例数据有明确标签；失败或无 snapshot 不会展示为成功研究。仍需在真实 D1/Provider 环境做验收。 |
 | A2 | 可重复本地开发 | **核心实现已完成并实际验收**：`wrangler.local.jsonc` + `.dev.vars.example` 初始化隔离 D1；测试身份只在 loopback + `.invalid` 账户生效；`pnpm local:verify:e2e` 创建、执行、查询、取消 fixture 任务；无需生产密钥。生产自托管与多租户验收仍不在此范围。 |
 | A3 | 安全与任务集成测试 | **A3.1 已完成基础**：角色合法性、owner 成员关系、核心研究/组合记录同 Workspace 引用、审计元数据脱敏均由迁移/测试覆盖。**A3.2 已完成**：`requireWorkspaceAccess` / `requirePortfolioAccess` / `listAccessibleWorkspaces` 统一 401/403/404；成员管理 API 写脱敏审计；控制性 Owner 原子转移（目标须为已有成员，旧 owner 保留为普通 owner 成员，新 owner 受降级/移除保护）；`tests/tenant-isolation.test.ts` + `tests/workspace-access.test.ts` + `tests/ownership-transfer.test.ts` 双租户越权与 role-matrix 集成测试通过；`x-alphalens-workspace` 仅在 membership 校验后生效。**A3.3 已完成**：可恢复研究任务状态机（原子 lease 领取、有限重试与退避、lease 回收、取消优先、terminal 不可重执行）、at-least-once Webhook/通知 Outbox（防 SSRF URL 校验、dead-letter、workspace 隔离）与安全账户删除（确认门、controlling-owner 前置、可取消、软删除、删除后禁止再认证）；`tests/research-job-reliability.test.ts` + `tests/outbox-reliability.test.ts` + `tests/account-deletion.test.ts` 覆盖并发 claim、退避/耗尽、dead-letter、跨租户隔离与删除生命周期。仍未完成：托管队列、生产 OAuth/SSO、监控告警、合规审批的数据保留策略。 |
+| P1-E | 证据草稿闭环 | **已完成（fixture 验收）**：SEC 事实规范化并带引用；确定性草稿中每个数字链接 `evidence_id`；自动校验（证据存在/归属/类型、数值 tie-out、单位、截止时间、引用完整、EPS 交叉核对）写入 `verification_issues`；阻断问题只能通过重新校验关闭，警告需附说明确认；存在阻断问题或未校验时不能批准或发布，审批仅限 Owner；`tests/phase1-gate.test.ts` 与 CI 中的 `pnpm local:verify:e2e` 走完 job → 草稿 → 校验 → 审阅 → 发布。仍需真实 SEC 数据验收。 |
 | A4 | Workflow 生命周期 | 审批暂停/恢复、publish、并发限制、依赖失败策略和最终状态均经测试；不留永久 running 的任务 |
 | B1 | 可观测的模型适配器 | 输入/输出 schema、模型/Prompt 版本、调用追踪、超时、费用上限和引用校验；先 fixture 后真实调用 |
 | B2 | 研究质量评估 | 公开合法 fixture、行业基准案例、引用准确率与数字 tie-out；人工抽检；质量分数不能冒充投资获利概率 |

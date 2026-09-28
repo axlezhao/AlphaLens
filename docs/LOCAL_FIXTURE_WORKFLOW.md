@@ -50,8 +50,11 @@ pnpm local:verify:e2e
 
 1. 创建 AAPL fixture 研究任务；
 2. 调用仅对 loopback fixture 请求开放的本地 research worker；
-3. 查询完成任务，确认 `snapshot.sourceMode === "fixture"` 且有来源；
-4. 创建 MSFT fixture 任务、取消它并确认终态为 `cancelled`。
+3. 查询完成任务，确认 `snapshot.sourceMode === "fixture"`、有来源且记录了规范化的 SEC 事实；
+4. 生成证据草稿，确认每个事实都有 `evidence_id` 与披露引用、草稿已校验且没有阻断问题，然后确认未经批准不能发布、提交审阅、由 Owner 批准并发布；
+5. 创建 MSFT fixture 任务、取消它并确认终态为 `cancelled`。
+
+Fixture 的合成 companyfacts 使用 `.invalid` 来源与全零 accession 前缀，数值是明显虚构的整数，只用于验证链路。
 
 默认 fixture 模式会设置 `ALPHALENS_LOCAL_MANUAL_WORKER=true`，避免创建 API 自动执行任务，从而可以稳定验证取消行为。真实部署不应设置这些本地变量。
 

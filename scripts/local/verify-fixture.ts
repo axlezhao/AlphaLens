@@ -18,8 +18,9 @@ async function main() {
   const completed = jobId(await api("/api/v1/research", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticker: "AAPL", question: `Local fixture evidence verification ${runId}`, asOf }) }));
   await api("/api/internal/research-worker", { method: "POST" });
   const completedJob = await api(`/api/v1/research/${encodeURIComponent(completed)}`);
-  const snapshot = completedJob.snapshot as { sourceMode?: unknown; sources?: unknown } | null;
+  const snapshot = completedJob.snapshot as { sourceMode?: unknown; sources?: unknown; secFacts?: { facts?: unknown } | null } | null;
   if (completedJob.status !== "succeeded" || snapshot?.sourceMode !== "fixture" || !Array.isArray(snapshot.sources) || snapshot.sources.length === 0) throw new Error("Fixture research job did not finish with a fixture snapshot");
+  if (!Array.isArray(snapshot.secFacts?.facts) || snapshot.secFacts.facts.length === 0) throw new Error("Fixture research job did not record normalized SEC facts");
 
   const cancellable = jobId(await api("/api/v1/research", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticker: "MSFT", question: `Local fixture cancellation verification ${runId}`, asOf }) }));
   await api(`/api/v1/research/${encodeURIComponent(cancellable)}`, { method: "DELETE" });

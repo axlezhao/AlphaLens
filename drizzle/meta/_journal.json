@@ -57,6 +57,13 @@
       "when": 1789900000000,
       "tag": "0007_brisk_aurora",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1790565956318,
+      "tag": "0008_verification_issues",
+      "breakpoints": true
     }
   ]
 }

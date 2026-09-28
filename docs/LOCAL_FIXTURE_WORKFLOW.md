@@ -60,16 +60,16 @@ Fixture 的合成 companyfacts 使用 `.invalid` 来源与全零 accession 前�
 
 ## 验证 Workspace 数据完整性
 
-以下命令不启动 Web 服务，也不需要 `.dev.vars`。它会将所有迁移应用到一个全新的临时 D1 状态，并验证数据库拒绝非法成员角色、跨 Workspace 的 ResearchJob、跨 Workspace 的 PortfolioPosition，以及把 Workspace owner 转给非成员的操作：
+以下命令不启动 Web 服务，也不需要 `.dev.vars`。它会将所有迁移应用到一个全新的临时 D1 状态，并验证数据库拒绝非法成员角色、跨 Workspace 的 ResearchJob、跨 Workspace 的 PortfolioPosition、关联到其他 Workspace 研究任务的证据草稿、写入其他 Workspace 研究版本的校验问题，以及把 Workspace owner 转给非成员的操作：
 
 ```bash
 pnpm db:local:verify-integrity
 ```
 
-该检查会打印临时状态目录，便于排错；其中只包含合成测试记录。它是 A3.1 的数据库完整性验证。A3.2 的双租户请求级越权测试已纳入 `tests/tenant-isolation.test.ts`、`tests/workspace-access.test.ts` 与 `tests/ownership-transfer.test.ts`，覆盖全部 18 条路由的 401/403/404 矩阵、`x-alphalens-workspace` 选择、成员管理 API、控制性 Owner 原子转移与脱敏审计持久化。A3.3 的可恢复研究任务状态机、at-least-once Outbox 与账户删除生命周期测试在 `tests/research-job-reliability.test.ts`、`tests/outbox-reliability.test.ts`、`tests/account-deletion.test.ts`。
+该检查会打印临时状态目录，便于排错；其中只包含合成测试记录。它是 A3.1 的数据库完整性验证。A3.2 的双租户请求级越权测试已纳入 `tests/tenant-isolation.test.ts`、`tests/workspace-access.test.ts` 与 `tests/ownership-transfer.test.ts`，覆盖全部 18 条路由的 401/403/404 矩阵、`x-alphalens-workspace` 选择、成员管理 API、控制性 Owner 原子转移与脱敏审计持久化。A3.3 的可恢复研究任务状态机、at-least-once Outbox 与账户删除生命周期测试在 `tests/research-job-reliability.test.ts`、`tests/outbox-reliability.test.ts`、`tests/account-deletion.test.ts`。第一阶段证据闭环（SEC 规范化、证据草稿、校验问题、审阅门禁与端到端 Gate）测试在 `tests/sec-normalize.test.ts`、`tests/research-draft.test.ts`、`tests/research-verify.test.ts`、`tests/research-review.test.ts`、`tests/phase1-gate.test.ts`。
 
 ## 清理与边界
 
 停止本地服务后，可按你自己的本机数据策略删除 `.wrangler/state/` 以重置 fixture 数据库。该路径永远不应指向生产 D1。
 
-本地 fixture 通过只证明：迁移、认证边界的本地分支、研究队列、执行、查询、取消和结果展示能协同工作；A3.1 还证明选定核心表的跨 Workspace 引用在 D1 层被拒绝。它**不**证明真实 SEC/IR/行情连通性、数据授权、生产登录、所有路由的租户攻击防护、异步恢复或投资研究准确性。
+本地 fixture 通过只证明：迁移、认证边界的本地分支、研究队列、执行、查询、取消和结果展示能协同工作，合成 SEC 事实能生成已校验、带引用的证据草稿并经 Owner 审阅发布；A3.1 还证明选定核心表的跨 Workspace 引用在 D1 层被拒绝。它**不**证明真实 SEC 数据的规范化结果、真实 SEC/IR/行情连通性、数据授权、生产登录、所有路由的租户攻击防护、异步恢复或投资研究准确性。

@@ -76,7 +76,7 @@ pnpm test
 pnpm db:local:verify-integrity
 ```
 
-The isolated D1 check verifies owner membership, valid roles, and database-level rejection of selected cross-workspace research and portfolio writes. The checks do not establish real-provider availability, full request-level authorization coverage, research accuracy, or investment performance. CI runs them without live provider keys.
+The isolated D1 check verifies owner membership, valid roles, and database-level rejection of selected cross-workspace research, portfolio, evidence-draft and verification-issue writes. The checks do not establish real-provider availability, full request-level authorization coverage, research accuracy, or investment performance. CI runs them without live provider keys.
 
 ## Architecture
 

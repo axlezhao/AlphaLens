@@ -69,7 +69,7 @@ pnpm test
 pnpm db:local:verify-integrity
 ```
 
-其中 `db:local:verify-integrity` 在隔离 D1 中验证 owner 成员关系、角色合法性，以及核心研究/组合跨 Workspace 写入被数据库拒绝。上述检查仍不证明实时 Provider 可用、完整请求级租户安全、投资准确率或收益表现。
+其中 `db:local:verify-integrity` 在隔离 D1 中验证 owner 成员关系、角色合法性，以及核心研究/组合、证据草稿与校验问题的跨 Workspace 写入被数据库拒绝。上述检查仍不证明实时 Provider 可用、完整请求级租户安全、投资准确率或收益表现。
 
 ## 技术与方向
 

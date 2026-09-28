@@ -2,7 +2,7 @@
 
 > 阅读边界（`0.5.0-beta`）：本文同时保留长期设计与已实现模块，不是完成度证明。AlphaLens 已转为独立个人开源项目；以[能力与路线图](CAPABILITIES_AND_ROADMAP.md)作为当前状态的统一入口。
 >
-> 当前实际研究链路为 Web UI → 可信认证 API → D1 队列 → Provider 数据快照 → 查询/事件 API → 真实来源结果页。结果页展示任务实际 snapshot 的 URL、抓取时间、`as_of`、缓存、新鲜/陈旧、缺失能力与警告；首页示例论点不会被包装为本次任务产物。runner 不调用外部 LLM。下文 Thesis Engine、独立 Agent 分析、完整发布/审批 DAG、新闻/宏观源等属于目标设计或不完整实验；评分为启发式，Skill 权限声明不是安全沙箱，fallback 列表不等于已执行跨供应商切换。保存 `as_of` 也不保证历史可得性。
+> 当前实际研究链路为 Web UI → 可信认证 API → D1 队列 → Provider 数据快照 + SEC 事实规范化（带引用、按 `as_of` 过滤提交日期）→ 查询/事件 API → 真实来源结果页 → 确定性证据草稿 → 自动校验问题 → Owner 审阅 → 发布。草稿不含生成的论点，阻断问题未关闭时不能批准或发布。结果页展示任务实际 snapshot 的 URL、抓取时间、`as_of`、缓存、新鲜/陈旧、缺失能力与警告；首页示例论点不会被包装为本次任务产物。runner 不调用外部 LLM。下文 Thesis Engine、独立 Agent 分析、完整发布/审批 DAG、新闻/宏观源等属于目标设计或不完整实验；评分为启发式，Skill 权限声明不是安全沙箱，fallback 列表不等于已执行跨供应商切换。保存 `as_of` 也不保证历史可得性。
 >
 > 本地开发另有隔离分支：`loopback fixture identity → local D1 → synthetic Provider snapshots → result view`。它必须同时启用本地与 fixture 开关、接收 loopback 请求并使用 `.invalid` 身份；fixture 来源明确标为合成数据，绝不访问真实 Provider。A3.1 将核心记录的 `workspace_id` 与其 Security、Source、Job 或 Portfolio 父记录在 D1 触发器中对齐，避免应用代码失误把已存在的另一租户 ID 写入关系表。A3.2 在请求层补齐：`requireWorkspaceAccess` / `requirePortfolioAccess` / `listAccessibleWorkspaces` 统一 401/403/404；跨租户资源 ID 与缺失资源返回相同的 404，避免枚举；`x-alphalens-workspace` 仅是已认证用户的选择提示，membership 校验在 DB 层完成，不通过则 404。成员管理 API 与原子化控制性 Owner 转移（目标须为已有成员，旧 owner 保留为普通 owner 成员）补全多租户模型。A3.3 补齐后台可靠性：研究任务走可恢复状态机（原子 lease 领取、有限重试与退避、lease 回收、取消优先），通知/Webhook 走 at-least-once Outbox（防 SSRF URL 校验、dead-letter 与 workspace 隔离），账户删除走确认门 + controlling-owner 前置 + 后台软删除。双租户 HTTP 集成测试见[本地 Fixture 工作流](LOCAL_FIXTURE_WORKFLOW.md)与 `tests/tenant-isolation.test.ts`。
 
@@ -411,6 +411,10 @@ Provider 不是硬编码“谁先返回用谁”，而是先按 capability、all
 | P2 组合辅助决策 | `app/portfolio.tsx` |
 | P3 研究平台控制面 | `app/platform.tsx` |
 | 研究任务 API | `app/api/v1/research/route.ts` |
+| SEC 事实规范化 | `lib/research/normalize.ts` |
+| 证据草稿与审阅 API | `lib/research/draft.ts`, `app/api/v1/research/[jobId]/draft/` |
+| 草稿自动校验 | `lib/research/verify.ts` |
+| 草稿审阅面板 | `app/research-draft.tsx` |
 | P1 查询与命令 API | `app/api/v1/workbench/route.ts` |
 | P2 组合查询与命令 API | `app/api/v1/portfolio/route.ts` |
 | P3 平台查询与命令 API | `app/api/v1/platform/route.ts` |

@@ -1,4 +1,5 @@
 import type { Freshness, ProviderName } from "../providers/types";
+import type { NormalizationIssue, NormalizedSecFact, SecNormalization } from "./normalize";
 
 export type ResearchSnapshotSource = {
   provider: ProviderName;
@@ -30,6 +31,8 @@ export type ResearchSnapshot = {
   providerPlan: ResearchSnapshotPlan[];
   sources: ResearchSnapshotSource[];
   warnings: string[];
+  /** Normalized, cited SEC facts; absent on snapshots written before normalization existed. */
+  secFacts: SecNormalization | null;
 };
 
 const PROVIDERS: readonly ProviderName[] = ["sec-edgar", "issuer-ir", "alpha-vantage-market", "alpha-vantage-consensus"];
@@ -54,6 +57,15 @@ function string(value: unknown, fallback = ""): string {
 
 function providerList(value: unknown): ProviderName[] {
   return Array.isArray(value) ? value.filter(isProvider) : [];
+}
+
+function parseSecFacts(value: unknown): SecNormalization | null {
+  if (!isRecord(value) || !Array.isArray(value.facts) || !Array.isArray(value.issues)) return null;
+  const facts = value.facts.filter((fact): fact is NormalizedSecFact =>
+    isRecord(fact) && typeof fact.key === "string" && typeof fact.value === "number" && typeof fact.periodEnd === "string"
+    && isRecord(fact.citation) && typeof fact.citation.sourceUrl === "string" && typeof fact.citation.accession === "string");
+  const issues = value.issues.filter((issue): issue is NormalizationIssue => isRecord(issue) && typeof issue.code === "string" && typeof issue.message === "string");
+  return { cik: typeof value.cik === "string" ? value.cik : null, entityName: typeof value.entityName === "string" ? value.entityName : null, asOfDate: string(value.asOfDate), facts, issues };
 }
 
 /**
@@ -102,6 +114,7 @@ export function parseResearchSnapshot(value: unknown): ResearchSnapshot | null {
     providerPlan,
     sources,
     warnings: value.warnings.filter((warning): warning is string => typeof warning === "string"),
+    secFacts: parseSecFacts(value.secFacts),
   };
 }
 

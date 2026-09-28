@@ -92,20 +92,14 @@ describe("SEC companyfacts normalization", () => {
 });
 
 describe("research runner persists normalized SEC facts (fixture mode)", () => {
-  const env = { development: process.env.ALPHALENS_LOCAL_DEVELOPMENT, fixture: process.env.ALPHALENS_FIXTURE_MODE };
   let tenant: { userId: string; workspaceId: string };
 
+  // installHarness enables fixture mode and teardownHarness clears it.
   before(async () => {
     installHarness();
     tenant = await provisionTenant(OWNER_A);
-    process.env.ALPHALENS_LOCAL_DEVELOPMENT = "true";
-    process.env.ALPHALENS_FIXTURE_MODE = "true";
   });
-  after(() => {
-    process.env.ALPHALENS_LOCAL_DEVELOPMENT = env.development;
-    process.env.ALPHALENS_FIXTURE_MODE = env.fixture;
-    teardownHarness();
-  });
+  after(() => teardownHarness());
 
   async function runOnce(key: string) {
     asUser(OWNER_A);
